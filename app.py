@@ -427,7 +427,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 3. PAGE CONFIG & GROWW/ZERODHA HYBRID DARK CSS
+# 3. PAGE CONFIG & PERMANENT DESKTOP VIEWPORT ENGINE
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -461,11 +461,19 @@ st.markdown("""
     }
     code, .stCode, .mono { font-family: 'JetBrains Mono', monospace !important; }
 
+    /* Enforce Desktop Width Always Across Mobile / Tablet */
+    html, body {
+        min-width: 1200px !important;
+        overflow-x: auto !important;
+        background-color: var(--bg-main) !important;
+    }
+
     .stApp {
         background-color: var(--bg-main) !important;
         color: var(--text-primary) !important;
         user-select: none;
         -webkit-user-select: none;
+        min-width: 1200px !important;
     }
 
     header[data-testid="stHeader"],
@@ -480,6 +488,23 @@ st.markdown("""
     div[data-testid="stVerticalBlock"] > div:empty { display: none !important; }
     div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
     div[data-testid="element-container"]:empty { display: none !important; }
+
+    .block-container {
+        padding: 0.8rem 1.2rem 2.5rem 1.2rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Fixed 100vh Zero-Scroll Login Viewport */
+    .fixed-login-viewport {
+        height: 82vh !important;
+        max-height: 82vh !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        overflow: hidden !important;
+        margin: 0 auto !important;
+    }
 
     .market-status-bar {
         display: flex;
@@ -581,6 +606,14 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
+    /* Permanent Desktop Columns Layout */
+    [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+    }
+
     /* Directional Pulse Glow Animations */
     @keyframes glowGreenTick {
         0% {
@@ -622,45 +655,6 @@ st.markdown("""
         animation: glowRedTick 1.2s cubic-bezier(0.25, 1, 0.5, 1) !important;
     }
 
-    @media (max-width: 900px) {
-        .block-container {
-            padding: 0.5rem 0.6rem 2.2rem 0.6rem !important;
-            max-width: 100% !important;
-        }
-
-        [data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch !important;
-            gap: 6px !important;
-            padding-bottom: 4px !important;
-            scrollbar-width: none;
-        }
-        [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
-            display: none;
-        }
-
-        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: 135px !important;
-            flex: 0 0 auto !important;
-            padding: 2px !important;
-        }
-
-        div[data-testid="stDataFrame"] {
-            width: 100% !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        div.stButton > button {
-            min-height: 38px !important;
-            font-size: 12px !important;
-            padding: 4px 8px !important;
-        }
-    }
-
     .pulse-container {
         display: flex;
         flex-direction: column;
@@ -694,13 +688,24 @@ st.markdown("""
 </style>
 
 <script>
-    // 1. Hard Block Context Menu
+    // 1. Force Browser Into Desktop Viewport
+    let vp = document.querySelector("meta[name=viewport]");
+    if (vp) {
+        vp.setAttribute('content', 'width=1280, initial-scale=0.35, maximum-scale=3.0, user-scalable=yes');
+    } else {
+        let meta = document.createElement('meta');
+        meta.name = "viewport";
+        meta.content = "width=1280, initial-scale=0.35, maximum-scale=3.0, user-scalable=yes";
+        document.getElementsByTagName('head')[0].appendChild(meta);
+    }
+
+    // 2. Hard Block Context Menu
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         return false;
     }, { capture: true });
 
-    // 2. Intercept and Neutralize Developer Inspection Combinations
+    // 3. Neutralize Developer Inspection Combinations
     document.addEventListener('keydown', function(e) {
         if (e.keyCode === 123) {
             e.preventDefault(); e.stopPropagation(); return false;
@@ -830,21 +835,23 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 4. FAST AUTHENTICATION SCREEN (4-DIGIT MPIN)
+# 4. FIXED ZERO-SCROLL LOGIN SCREEN ("NO NEED TO SLIDE")
 # ====================================================
 if not st.session_state.authenticated:
+    st.markdown("<div class='fixed-login-viewport'>", unsafe_allow_html=True)
+    
     logo_html = render_brand_logo(size=36)
     header_html = (
-        f'<div style="text-align: center; margin-top: 35px; margin-bottom: 18px;">'
+        f'<div style="text-align: center; margin-bottom: 12px;">'
         f'{logo_html}'
-        f'<p style="color: #64748b; font-size: 12px; margin-top: 6px; letter-spacing: 0.3px;">'
+        f'<p style="color: #64748b; font-size: 11px; margin-top: 4px; letter-spacing: 0.3px;">'
         f'Quantitative Equities & Market Terminal'
         f'</p>'
         f'</div>'
     )
     st.markdown(header_html, unsafe_allow_html=True)
 
-    _, center_col, _ = st.columns([1, 1.4, 1])
+    _, center_col, _ = st.columns([1, 1.1, 1])
     with center_col:
         tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
         
@@ -852,7 +859,6 @@ if not st.session_state.authenticated:
             with st.form("clean_mpin_form"):
                 m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
                 m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
-                st.write("")
                 submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
                 if submit_mpin:
                     ok, u_data, msg = verify_user_mpin(m_user, m_pin)
@@ -870,7 +876,6 @@ if not st.session_state.authenticated:
             with st.form("clean_login_form"):
                 l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
                 l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
-                st.write("")
                 submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
                 if submit_login:
                     ok, u_data, msg = verify_user_password(l_user, l_pass)
@@ -890,7 +895,6 @@ if not st.session_state.authenticated:
                 r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
                 r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
                 r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
-                st.write("")
                 submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
                 if submit_reg:
                     if r_pass != r_conf:
@@ -902,6 +906,7 @@ if not st.session_state.authenticated:
                         else:
                             st.error(f"❌ {msg}")
 
+    st.markdown("</div>", unsafe_allow_html=True)
     render_caution_bar()
     st.stop()
 
@@ -990,7 +995,7 @@ def load_all_indian_stocks_universe() -> dict:
         "NTPCGREEN": {"name": "NTPC Green Energy Ltd", "symbol": "NTPCGREEN", "bse": "544289"},
         "ZOMATO": {"name": "Zomato Ltd", "symbol": "ZOMATO", "bse": "543320"},
         "JIOFIN": {"name": "Jio Financial Services Ltd", "symbol": "JIOFIN", "bse": "543940"},
-        "SUZLON": {"name": "SuzLON Energy Ltd", "symbol": "SUZLON", "bse": "532667"},
+        "SUZLON": {"name": "Suzlon Energy Ltd", "symbol": "SUZLON", "bse": "532667"},
         "IREDA": {"name": "IREDA Ltd", "symbol": "IREDA", "bse": "544026"},
         "IRFC": {"name": "Indian Railway Finance Corp", "symbol": "IRFC", "bse": "543257"},
         "MAZDOCK": {"name": "Mazagon Dock Shipbuilders Ltd", "symbol": "MAZDOCK", "bse": "543237"},
