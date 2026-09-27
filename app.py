@@ -85,8 +85,10 @@ def init_db():
         """)
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS mpin_hash VARCHAR(256);")
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR(256);")
+        conn.commit()
     else:
-        c.execute("""
+        # executescript handles multiple statements and auto-commits in SQLite
+        c.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
@@ -112,8 +114,7 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN session_token TEXT;")
         except Exception:
             pass
-
-    conn.commit()
+        conn.commit()
 
     DEV_USER = "admin"
     DEV_PASS = "Admin@1234"
@@ -166,7 +167,7 @@ def clear_user_session(username: str):
     conn = get_db_connection()
     c = conn.cursor()
     q = "UPDATE users SET session_token = NULL WHERE username = %s" if IS_POSTGRES else "UPDATE users SET session_token = NULL WHERE username = ?"
-    c.execute(q, (username.strip().lower(),))
+    c.execute(q, (username.strip().lower()))
     conn.commit()
     conn.close()
 
@@ -376,6 +377,8 @@ def get_market_calendar_status():
             "status": "PRE_SESSION",
             "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
             "message": "Normal trading starts at 09:15 AM IST",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_pre_open <= curr_time < t_open:
@@ -658,7 +661,6 @@ if "auto_refresh_enabled" not in st.session_state:
 if "auto_refresh_sec" not in st.session_state:
     st.session_state.auto_refresh_sec = 30
 
-# Check persistent device token from URL query params
 if not st.session_state.authenticated:
     url_token = st.query_params.get("auth_token", None)
     if url_token:
