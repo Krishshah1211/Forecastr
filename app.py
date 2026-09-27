@@ -33,7 +33,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
-# 1. DATABASE & ENCRYPTED USER VAULT (WITH MPIN SUPPORT)
+# 1. DATABASE & ENCRYPTED USER VAULT
 # ====================================================
 DB_URL = None
 try:
@@ -52,7 +52,13 @@ def get_db_connection():
     if IS_POSTGRES:
         return psycopg2.connect(DB_URL, sslmode="require")
     else:
-        return sqlite3.connect("users_vault.db")
+        return sqlite3.connect("users_vault.db", check_same_thread=False)
+
+def hash_secret(secret_str: str, salt: str = None) -> tuple:
+    if not salt:
+        salt = os.urandom(16).hex()
+    hashed = hashlib.sha256((secret_str + salt).encode('utf-8')).hexdigest()
+    return hashed, salt
 
 def init_db():
     conn = get_db_connection()
@@ -69,6 +75,8 @@ def init_db():
                 last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_data TEXT
             );
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS stock_universe (
                 symbol VARCHAR(50) PRIMARY KEY,
                 company_name TEXT,
@@ -88,6 +96,8 @@ def init_db():
                 last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_data TEXT
             );
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS stock_universe (
                 symbol TEXT PRIMARY KEY,
                 company_name TEXT,
@@ -98,30 +108,35 @@ def init_db():
             c.execute("ALTER TABLE users ADD COLUMN mpin_hash TEXT;")
         except Exception:
             pass
-    
+
+    conn.commit()
+
     DEV_USER = "admin"
     DEV_PASS = "Admin@1234"
     DEV_MPIN = "1234"
-    c.execute("SELECT id FROM users WHERE username = %s" if IS_POSTGRES else "SELECT id FROM users WHERE username = ?", (DEV_USER,))
+    
+    query = "SELECT id FROM users WHERE username = %s" if IS_POSTGRES else "SELECT id FROM users WHERE username = ?"
+    c.execute(query, (DEV_USER,))
     if not c.fetchone():
         salt = os.urandom(16).hex()
         pwd_hash = hashlib.sha256((DEV_PASS + salt).encode('utf-8')).hexdigest()
         mpin_h = hashlib.sha256((DEV_MPIN + salt).encode('utf-8')).hexdigest()
         dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "TATAMOTORS", "HYUNDAI"], "searches": []})
-        c.execute("INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" if IS_POSTGRES 
-                  else "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)",
-                  (DEV_USER, salt, pwd_hash, mpin_h, dev_data))
-    
-    conn.commit()
+        insert_query = (
+            "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
+            if IS_POSTGRES else 
+            "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)"
+        )
+        c.execute(insert_query, (DEV_USER, salt, pwd_hash, mpin_h, dev_data))
+        conn.commit()
+
     conn.close()
 
-def hash_secret(secret_str: str, salt: str = None) -> tuple:
-    if not salt:
-        salt = os.urandom(16).hex()
-    hashed = hashlib.sha256((secret_str + salt).encode('utf-8')).hexdigest()
-    return hashed, salt
+# Initialize DB unconditionally
+init_db()
 
 def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
+    init_db()
     if " " in username or re.search(r'\s', username):
         return False, "Username cannot contain spaces."
     if " " in password or re.search(r'\s', password):
@@ -151,6 +166,7 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
         return False, "Username already exists or database connection failed."
 
 def verify_user_mpin(username: str, mpin: str) -> tuple:
+    init_db()
     if not re.match(r'^\d{4}$', str(mpin).strip()):
         return False, None, "MPIN must be exactly 4 digits."
 
@@ -180,6 +196,7 @@ def verify_user_mpin(username: str, mpin: str) -> tuple:
         return False, None, "Incorrect 4-Digit MPIN."
 
 def verify_user_password(username: str, password: str) -> tuple:
+    init_db()
     if " " in username or re.search(r'\s', username):
         return False, None, "Username cannot contain spaces."
     if " " in password or re.search(r'\s', password):
@@ -207,6 +224,7 @@ def verify_user_password(username: str, password: str) -> tuple:
         return False, None, "Incorrect password."
 
 def update_user_mpin(username: str, new_mpin: str) -> tuple:
+    init_db()
     if not re.match(r'^\d{4}$', str(new_mpin).strip()):
         return False, "MPIN must be exactly 4 digits."
     conn = get_db_connection()
@@ -227,6 +245,7 @@ def update_user_mpin(username: str, new_mpin: str) -> tuple:
     return True, "4-Digit MPIN updated successfully!"
 
 def update_user_password(username: str, old_pass: str, new_pass: str) -> tuple:
+    init_db()
     if " " in new_pass or re.search(r'\s', new_pass):
         return False, "New password cannot contain spaces."
     if len(new_pass.strip()) < 6:
@@ -255,17 +274,13 @@ def update_user_password(username: str, old_pass: str, new_pass: str) -> tuple:
     return True, "Password updated successfully!"
 
 def save_user_data(username: str, data_dict: dict):
+    init_db()
     conn = get_db_connection()
     c = conn.cursor()
     up_q = "UPDATE users SET user_data = %s WHERE username = %s" if IS_POSTGRES else "UPDATE users SET user_data = ? WHERE username = ?"
     c.execute(up_q, (json.dumps(data_dict), username.strip().lower()))
     conn.commit()
     conn.close()
-
-try:
-    init_db()
-except Exception:
-    pass
 
 # ====================================================
 # 2. NSE / BSE MARKET CALENDAR & COUNTDOWN ENGINE
@@ -462,20 +477,6 @@ st.markdown("""
     }
     @keyframes blinkText { 0% { opacity: 0.4; } 100% { opacity: 1; color: #00D09C; } }
 </style>
-
-<script>
-    document.addEventListener('contextmenu', event => event.preventDefault());
-    document.onkeydown = function(e) {
-        if (e.keyCode == 123) return false;
-        if (e.ctrlKey && e.shiftKey && e.keyCode == 'I'.charCodeAt(0)) return false;
-        if (e.ctrlKey && e.shiftKey && e.keyCode == 'C'.charCodeAt(0)) return false;
-        if (e.ctrlKey && e.shiftKey && e.keyCode == 'J'.charCodeAt(0)) return false;
-        if (e.ctrlKey && e.keyCode == 'U'.charCodeAt(0)) return false;
-    }
-    if ("Notification" in window && Notification.permission === "default") {
-        Notification.requestPermission();
-    }
-</script>
 """, unsafe_allow_html=True)
 
 def render_brand_logo(size=30):
@@ -538,32 +539,6 @@ def show_stock_graph_loader(stock_name: str = "ORDER BOOK"):
     """
     return st.empty().markdown(loader_html, unsafe_allow_html=True)
 
-def trigger_browser_notification(title: str, body: str):
-    clean_title = json.dumps(title)
-    clean_body = json.dumps(body)
-    js_code = f"""
-    <script>
-        if ("Notification" in window) {{
-            if (Notification.permission === "granted") {{
-                new Notification({clean_title}, {{
-                    body: {clean_body},
-                    icon: "https://raw.githubusercontent.com/feathericons/feather/master/icons/trending-up.svg"
-                }});
-            }} else if (Notification.permission !== "denied") {{
-                Notification.requestPermission().then(function(permission) {{
-                    if (permission === "granted") {{
-                        new Notification({clean_title}, {{
-                            body: {clean_body},
-                            icon: "https://raw.githubusercontent.com/feathericons/feather/master/icons/trending-up.svg"
-                        }});
-                    }}
-                }});
-            }}
-        }}
-    </script>
-    """
-    st.components.v1.html(js_code, height=0, width=0)
-
 # ====================================================
 # STATUTORY DISCLAIMER DIALOG & CAUTION BAR
 # ====================================================
@@ -597,7 +572,7 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 4. FAST AUTHENTICATION SCREEN (4-DIGIT MPIN + BIOMETRIC)
+# 4. FAST AUTHENTICATION SCREEN (4-DIGIT MPIN)
 # ====================================================
 if not st.session_state.authenticated:
     logo_html = render_brand_logo(size=38)
@@ -615,7 +590,6 @@ if not st.session_state.authenticated:
     with center_col:
         tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
         
-        # TAB 1: 4-DIGIT MPIN LOGIN
         with tab_mpin:
             with st.form("clean_mpin_form"):
                 m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
@@ -631,55 +605,7 @@ if not st.session_state.authenticated:
                         st.rerun()
                     else:
                         st.error(f"❌ {msg}")
-            
-            st.markdown("<div style='text-align: center; margin: 12px 0 6px 0; font-size: 12px; color: #64748b;'>— OR USE PHONE DEVICE LOCK —</div>", unsafe_allow_html=True)
-            
-            bio_html = """
-            <button onclick="handleBiometricLogin()" style="
-                width: 100%;
-                background: #111827;
-                border: 1px solid rgba(0, 208, 156, 0.4);
-                color: #00D09C;
-                font-weight: 700;
-                padding: 10px;
-                border-radius: 8px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-                font-size: 13px;
-            ">
-                <span>📱 Face ID / Fingerprint / Screen Lock</span>
-            </button>
-            <script>
-            async function handleBiometricLogin() {
-                if (window.PublicKeyCredential) {
-                    try {
-                        const challenge = new Uint8Array(32);
-                        window.crypto.getRandomValues(challenge);
-                        const options = {
-                            publicKey: {
-                                challenge: challenge,
-                                timeout: 60000,
-                                userVerification: "required",
-                                rpId: window.location.hostname
-                            }
-                        };
-                        await navigator.credentials.get(options).catch(() => {});
-                        alert("Device authentication verified! Enter your 4-digit MPIN to complete secure session handshake.");
-                    } catch(e) {
-                        alert("Face ID / Screen lock ready. Enter MPIN to log in.");
-                    }
-                } else {
-                    alert("Biometric device lock requires HTTPS or mobile browser. Please enter 4-digit MPIN.");
-                }
-            }
-            </script>
-            """
-            st.components.v1.html(bio_html, height=48)
 
-        # TAB 2: MASTER PASSWORD LOGIN
         with tab_pwd:
             with st.form("clean_login_form"):
                 l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
@@ -696,7 +622,6 @@ if not st.session_state.authenticated:
                     else:
                         st.error(f"❌ {msg}")
 
-        # TAB 3: REGISTRATION WITH 4-DIGIT MPIN SETUP
         with tab_register:
             with st.form("clean_register_form"):
                 r_user = st.text_input("Username", placeholder="Choose username")
@@ -719,7 +644,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 5. PROFILE DIALOG (MPIN & PASSWORD MANAGEMENT)
+# 5. PROFILE DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -757,7 +682,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 6. ALL-INDIA COMPLETE MASTER UNIVERSE (~5,000+ STOCKS)
+# 6. ALL-INDIA COMPLETE MASTER UNIVERSE
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
