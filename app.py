@@ -125,7 +125,7 @@ def init_db():
         salt = os.urandom(16).hex()
         pwd_hash = hashlib.sha256((DEV_PASS + salt).encode('utf-8')).hexdigest()
         mpin_h = hashlib.sha256((DEV_MPIN + salt).encode('utf-8')).hexdigest()
-        dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "TATAMOTORS", "HYUNDAI"], "searches": []})
+        dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "HDFCBANK", "HYUNDAI"], "searches": []})
         insert_query = (
             "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
             if IS_POSTGRES else 
@@ -188,7 +188,7 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     c = conn.cursor()
     pwd_hash, salt = hash_secret(password)
     mpin_hash, _ = hash_secret(str(mpin).strip(), salt)
-    default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "TATAMOTORS", "HYUNDAI"], "searches": []})
+    default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "HDFCBANK", "HYUNDAI"], "searches": []})
     try:
         query = ("INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
                  if IS_POSTGRES else "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)"
@@ -377,6 +377,8 @@ def get_market_calendar_status():
             "status": "PRE_SESSION",
             "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
             "message": "Normal trading starts at 09:15 AM IST",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_pre_open <= curr_time < t_open:
@@ -428,7 +430,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 3. PAGE CONFIG & ZERO-HORIZONTAL-DRIFT RESPONSIVE CSS
+# 3. CLEAN, RESPONSIVE THEME (NO ICON/EXPANDER CORRUPTION)
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -439,48 +441,44 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
     
     :root {
         --bg-main: #0B0E14;
         --bg-card: #121620;
-        --bg-card-hover: #181E2C;
         --border-subtle: rgba(255, 255, 255, 0.08);
         --groww-green: #00D09C;
-        --kite-blue: #387ED1;
         --kite-red: #DF514C;
         --text-primary: #F1F5F9;
         --text-secondary: #94A3B8;
-        --text-muted: #64748B;
     }
 
-    html, body {
-        width: 100% !important;
-        max-width: 100vw !important;
-        overflow-x: hidden !important;
-        background-color: var(--bg-main) !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-    * { 
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important; 
-        box-sizing: border-box !important;
-        -webkit-tap-highlight-color: transparent;
-        -webkit-touch-callout: none;
-    }
-    code, .stCode, .mono { font-family: 'JetBrains Mono', monospace !important; }
-
+    /* Target specific text elements rather than wildcard to protect icon ligatures */
     .stApp {
         background-color: var(--bg-main) !important;
         color: var(--text-primary) !important;
-        user-select: none;
-        -webkit-user-select: none;
-        width: 100% !important;
-        max-width: 100vw !important;
-        overflow-x: hidden !important;
+        font-family: 'Plus Jakarta Sans', sans-serif;
     }
 
+    h1, h2, h3, h4, p, label, .stMarkdown {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }
+
+    code, .stCode, .mono { 
+        font-family: 'JetBrains Mono', monospace !important; 
+    }
+
+    /* Never let text fonts override Material Icons or SVG icons */
+    [data-testid="stIcon"],
+    [data-testid="stExpanderToggleIcon"],
+    span[class*="material-symbols"],
+    span[class*="icon"],
+    button[aria-label*="password"],
+    button[aria-label*="Password"] {
+        font-family: inherit !important;
+    }
+
+    /* Suppress unnecessary headers and anchors */
     header[data-testid="stHeader"],
     [data-testid="stHeaderActionElements"],
     div[data-testid="StyledLinkIconContainer"],
@@ -494,81 +492,38 @@ st.markdown("""
     div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
     div[data-testid="element-container"]:empty { display: none !important; }
 
+    /* Clean spacing */
     .block-container {
-        padding: 0.6rem 0.8rem 2.2rem 0.8rem !important;
+        padding: 0.8rem 1rem 2rem 1rem !important;
         max-width: 100% !important;
-        width: 100% !important;
     }
 
+    /* Clean status pill */
     .market-status-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        background: linear-gradient(180deg, #131824 0%, #0E131D 100%);
+        background: #121620;
         border: 1px solid var(--border-subtle);
         padding: 6px 14px;
         border-radius: 20px;
         font-size: 11px;
         font-weight: 700;
-        letter-spacing: 0.3px;
-        margin-bottom: 6px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+        margin-bottom: 8px;
     }
 
-    /* Buttons */
-    div.stButton > button {
-        background: var(--bg-card);
-        color: var(--text-primary);
-        border: 1px solid var(--border-subtle);
-        border-radius: 12px;
-        font-weight: 600;
-        font-size: 13px;
-        min-height: 40px;
-        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
-    }
-    div.stButton > button:hover {
-        background: var(--bg-card-hover);
-        border-color: rgba(0, 208, 156, 0.3);
-        color: #FFFFFF;
-    }
-    div.stButton > button:active {
-        transform: scale(0.96);
-    }
-    div.stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #00D09C 0%, #00B084 100%) !important;
-        color: #071510 !important;
-        border: none !important;
-        font-weight: 700 !important;
-        box-shadow: 0 4px 14px rgba(0, 208, 156, 0.28) !important;
-    }
-
-    div[data-baseweb="select"] > div,
-    div[data-baseweb="input"] > div {
-        background-color: var(--bg-card) !important;
-        border: 1px solid var(--border-subtle) !important;
-        border-radius: 12px !important;
-        color: var(--text-primary) !important;
-    }
-    div[data-baseweb="select"] > div:focus-within,
-    div[data-baseweb="input"] > div:focus-within {
-        border-color: var(--groww-green) !important;
-        box-shadow: 0 0 0 2px rgba(0, 208, 156, 0.2) !important;
-    }
-
+    /* Standard Card-Style Metrics */
     div[data-testid="stMetric"] {
         background: var(--bg-card);
         border: 1px solid var(--border-subtle);
-        border-radius: 14px;
+        border-radius: 12px;
         padding: 10px 14px;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
     }
     div[data-testid="stMetricLabel"] {
         color: var(--text-secondary) !important;
-        font-size: 0.72rem !important;
+        font-size: 0.75rem !important;
         font-weight: 600 !important;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
     }
     div[data-testid="stMetricValue"] {
         color: #FFFFFF !important;
@@ -577,97 +532,55 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    div[data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: var(--bg-card);
-        border: 1px solid var(--border-subtle) !important;
-        border-radius: 14px;
-        padding: 4px;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    /* Standard Buttons */
+    div.stButton > button {
+        background: var(--bg-card);
+        color: var(--text-primary);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 13px;
+        min-height: 42px;
+    }
+    div.stButton > button[kind="primary"] {
+        background: #00D09C !important;
+        color: #071510 !important;
+        border: none !important;
+        font-weight: 700 !important;
     }
 
+    /* Clean Benchmark watchlist buttons */
     div.stButton > button p {
         margin: 0 !important;
         padding: 0 !important;
-        line-height: 1.3 !important;
-        white-space: pre-line !important;
+        line-height: 1.25 !important;
         text-align: center !important;
         font-size: 11px !important;
     }
     div.stButton > button p strong {
         display: block !important;
         font-size: 13px !important;
-        letter-spacing: 0.3px !important;
         color: #FFFFFF !important;
     }
 
-    @media (max-width: 900px) {
-        [data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch !important;
-            gap: 6px !important;
-            padding-bottom: 4px !important;
-            scrollbar-width: none;
-        }
-        [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
-            display: none;
-        }
-
-        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: 132px !important;
-            flex: 0 0 auto !important;
-            padding: 1px !important;
-        }
-
-        div[data-testid="stDataFrame"] {
-            width: 100% !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch;
-        }
-    }
-
+    /* Pulse animations on ticker updates */
     @keyframes glowGreenTick {
-        0% {
-            box-shadow: 0 0 0 0 rgba(0, 208, 156, 0.7);
-            border-color: #00D09C !important;
-            background-color: rgba(0, 208, 156, 0.18) !important;
-        }
-        50% {
-            box-shadow: 0 0 16px 2px rgba(0, 208, 156, 0.45);
-            border-color: #00D09C !important;
-        }
-        100% {
-            box-shadow: 0 0 0 0 rgba(0, 208, 156, 0);
-            border-color: var(--border-subtle) !important;
-            background-color: var(--bg-card) !important;
-        }
+        0% { border-color: #00D09C !important; background-color: rgba(0, 208, 156, 0.2) !important; }
+        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
     }
     @keyframes glowRedTick {
-        0% {
-            box-shadow: 0 0 0 0 rgba(223, 81, 76, 0.7);
-            border-color: #DF514C !important;
-            background-color: rgba(223, 81, 76, 0.18) !important;
-        }
-        50% {
-            box-shadow: 0 0 16px 2px rgba(223, 81, 76, 0.45);
-            border-color: #DF514C !important;
-        }
-        100% {
-            box-shadow: 0 0 0 0 rgba(223, 81, 76, 0);
-            border-color: var(--border-subtle) !important;
-            background-color: var(--bg-card) !important;
-        }
+        0% { border-color: #DF514C !important; background-color: rgba(223, 81, 76, 0.2) !important; }
+        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
     }
 
     div.glow-up > div.stButton > button {
-        animation: glowGreenTick 1.2s cubic-bezier(0.25, 1, 0.5, 1) !important;
+        animation: glowGreenTick 1.2s ease-out !important;
     }
     div.glow-down > div.stButton > button {
-        animation: glowRedTick 1.2s cubic-bezier(0.25, 1, 0.5, 1) !important;
+        animation: glowRedTick 1.2s ease-out !important;
     }
 
+    /* Pulse graph loader */
     .pulse-container {
         display: flex;
         flex-direction: column;
@@ -675,16 +588,15 @@ st.markdown("""
         justify-content: center;
         padding: 20px 0;
         margin: 10px 0;
-        background: rgba(14, 19, 31, 0.7);
+        background: #121620;
         border-radius: 12px;
-        border: 1px solid rgba(0, 208, 156, 0.18);
+        border: 1px solid rgba(0, 208, 156, 0.2);
     }
-    .stock-loader-svg { width: 100%; max-width: 260px; height: 65px; overflow: visible; }
+    .stock-loader-svg { width: 100%; max-width: 260px; height: 65px; }
     .chart-glow-path {
         fill: none; stroke: #00D09C; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
         stroke-dasharray: 600; stroke-dashoffset: 600;
-        animation: chartPulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-        filter: drop-shadow(0px 0px 8px rgba(0, 208, 156, 0.75));
+        animation: chartPulse 1.8s ease-in-out infinite;
     }
     .chart-glow-path-bg { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 2; }
     @keyframes chartPulse {
@@ -694,23 +606,18 @@ st.markdown("""
     }
     .loading-ticker-text {
         color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        margin-top: 8px; text-transform: uppercase; animation: blinkText 1.4s ease-in-out infinite alternate;
-        text-align: center;
+        margin-top: 8px; text-transform: uppercase;
     }
-    @keyframes blinkText { 0% { opacity: 0.4; } 100% { opacity: 1; color: #00D09C; } }
 </style>
 
 <script>
-    let vp = document.querySelector("meta[name=viewport]");
-    if (vp) {
-        vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
-    }
-
+    // Suppress right-click context menu
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         return false;
     }, { capture: true });
 
+    // Block F12, Ctrl+Shift+I/J/C, Ctrl+U
     document.addEventListener('keydown', function(e) {
         if (e.keyCode === 123) {
             e.preventDefault(); e.stopPropagation(); return false;
@@ -725,9 +632,6 @@ st.markdown("""
             e.preventDefault(); e.stopPropagation(); return false;
         }
         if ((e.ctrlKey || e.metaKey) && (e.keyCode === 85 || e.key === 'U' || e.key === 'u')) {
-            e.preventDefault(); e.stopPropagation(); return false;
-        }
-        if ((e.ctrlKey || e.metaKey) && (e.keyCode === 83 || e.key === 'S' || e.key === 's')) {
             e.preventDefault(); e.stopPropagation(); return false;
         }
     }, { capture: true });
@@ -781,7 +685,6 @@ if "auto_refresh_sec" not in st.session_state:
 if "prev_benchmark_prices" not in st.session_state:
     st.session_state.prev_benchmark_prices = {}
 
-# Check if user explicitly asked to reset session
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
     if "auth_token" in st.query_params:
@@ -790,7 +693,6 @@ if st.query_params.get("logout") == "true":
     st.session_state.current_user = ""
     st.session_state.user_profile = {}
 
-# Attempt silent auto-login via persistent token
 if not st.session_state.authenticated:
     url_token = st.query_params.get("auth_token", None)
     if url_token:
@@ -850,14 +752,19 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 4. GUARANTEED-VISIBLE AUTHENTICATION SCREEN
+# 4. CLEAN & RESPONSIVE AUTHENTICATION SCREEN
 # ====================================================
 if not st.session_state.authenticated:
     st.write("")
-    logo_html = render_brand_logo(size=36)
-    st.markdown(f"<div style='text-align:center; margin-bottom:14px;'>{logo_html}<p style='color:#64748b; font-size:12px; margin-top:4px;'>Quantitative Equities & Market Terminal</p></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='text-align:center; margin-bottom:16px;'>"
+        f"{render_brand_logo(size=36)}"
+        f"<p style='color:#64748b; font-size:12px; margin-top:4px;'>Quantitative Equities & Market Terminal</p>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
 
-    _, center_col, _ = st.columns([1, 1.6, 1])
+    _, center_col, _ = st.columns([1, 1.8, 1])
     with center_col:
         tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
         
@@ -919,26 +826,33 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 5. PROFILE DIALOG (CLEAN SANITIZED UI)
+# 5. PROFILE DIALOG (FIXED CLEAN UI)
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
     user = st.session_state.current_user
-    st.markdown(f"<div style='background:#111722; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); margin-bottom:12px;'><h3 style='margin:0; color:#00D09C; font-size:18px;'>{user.upper()}</h3></div>", unsafe_allow_html=True)
+    
+    st.markdown(
+        f"<div style='background:#121620; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.08); margin-bottom:12px;'>"
+        f"<span style='color:#94a3b8; font-size:11px; text-transform:uppercase;'>Active Account</span>"
+        f"<h3 style='margin:4px 0 0 0; color:#00D09C;'>{user.upper()}</h3>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
 
-    with st.expander("⚡ Update 4-Digit Fast MPIN", expanded=True):
-        new_pin = st.text_input("New 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 1234")
-        if st.button("Save New MPIN", use_container_width=True):
+    with st.expander("Update 4-Digit Fast MPIN", expanded=True):
+        new_pin = st.text_input("New 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 1234", key="diag_mpin_input")
+        if st.button("Save New MPIN", key="btn_save_mpin_diag", use_container_width=True):
             ok, msg = update_user_mpin(user, new_pin)
             if ok:
                 st.success(msg)
             else:
                 st.error(msg)
 
-    with st.expander("🔑 Change Master Password", expanded=False):
+    with st.expander("Change Master Password", expanded=False):
         old_p = st.text_input("Current Password", type="password", key="diag_old_pass")
         new_p = st.text_input("New Password", type="password", key="diag_new_pass")
-        if st.button("Update Password", use_container_width=True):
+        if st.button("Update Password", key="btn_save_pwd_diag", use_container_width=True):
             ok, msg = update_user_password(user, old_p, new_pass=new_p)
             if ok:
                 st.success(msg)
@@ -946,7 +860,7 @@ def open_profile_dropdown():
                 st.error(msg)
 
     st.markdown("---")
-    if st.button("🚪 Logout from Terminal", type="primary", use_container_width=True):
+    if st.button("Logout from Terminal", type="primary", use_container_width=True):
         clear_user_session(user)
         if "auth_token" in st.query_params:
             del st.query_params["auth_token"]
@@ -1085,36 +999,27 @@ def resolve_symbol_from_selection(selection: str) -> dict:
 @st.cache_data(ttl=25, show_spinner=False)
 def fetch_benchmark_snapshots(symbols: list) -> dict:
     results = {}
-    tickers_str = " ".join([f"{s}.NS" for s in symbols])
-    try:
-        data = yf.download(tickers_str, period="5d", interval="1d", progress=False)
-        if isinstance(data.columns, pd.MultiIndex):
-            close_df = data['Close']
-        else:
-            close_df = data[['Close']]
-
-        for sym in symbols:
-            col_sym = f"{sym}.NS"
-            if col_sym in close_df.columns:
-                series = close_df[col_sym].dropna()
-                if len(series) >= 2:
-                    prev_c = float(series.iloc[-2])
-                    curr_c = float(series.iloc[-1])
-                    chg_pct = round(((curr_c - prev_c) / prev_c) * 100, 2)
-                    results[sym] = {"price": round(curr_c, 1), "pct": chg_pct}
-    except Exception:
-        pass
-
     defaults = {
-        "RELIANCE": {"price": 1285.4, "pct": 1.25},
+        "RELIANCE": {"price": 1226.0, "pct": 0.56},
         "TCS": {"price": 3890.0, "pct": -0.42},
         "HDFCBANK": {"price": 1640.2, "pct": 0.85},
-        "TATAMOTORS": {"price": 795.5, "pct": 2.14},
+        "TATAMOTORS": {"price": 795.5, "pct": 1.14},
         "HYUNDAI": {"price": 1820.0, "pct": -1.10},
-        "INFY": {"price": 1860.5, "pct": 0.35}
+        "INFY": {"price": 1860.5, "pct": -1.41}
     }
+    
     for s in symbols:
-        if s not in results:
+        try:
+            t = yf.Ticker(f"{s}.NS")
+            hist = t.history(period="5d", interval="1d")
+            if len(hist) >= 2:
+                prev_c = float(hist['Close'].iloc[-2])
+                curr_c = float(hist['Close'].iloc[-1])
+                chg_pct = round(((curr_c - prev_c) / prev_c) * 100, 2)
+                results[s] = {"price": round(curr_c, 1), "pct": chg_pct}
+            else:
+                results[s] = defaults.get(s, {"price": 1000.0, "pct": 0.0})
+        except Exception:
             results[s] = defaults.get(s, {"price": 1000.0, "pct": 0.0})
     return results
 
@@ -1199,8 +1104,8 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
         live_volume = int(df_5m['Volume'].sum())
 
     if not live_price:
-        fallback_prices = {"HYUNDAI": 2208.80, "SWIGGY": 460.00, "NTPCGREEN": 125.00}
-        live_price = fallback_prices.get(symbol, 1000.0)
+        fallback_prices = {"HYUNDAI": 1820.0, "SWIGGY": 460.00, "NTPCGREEN": 125.00}
+        live_price = fallback_prices.get(symbol, 1226.0)
 
     if df_daily.empty:
         dates = pd.date_range(end=pd.Timestamp.now(), periods=60, freq="B")
@@ -1271,7 +1176,7 @@ def fetch_live_stock_news_and_sentiment(symbol: str, company_name: str) -> tuple
 
     if not headlines:
         headlines = [
-            f"Institutional order-flow volume accumulation monitored across {company_name}.",
+            f"Institutional volume consolidation monitored across {company_name}.",
             f"Technical pivot boundaries reacting to broader market volatility on {symbol}."
         ]
 
