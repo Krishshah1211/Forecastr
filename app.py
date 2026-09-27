@@ -4,7 +4,20 @@ import json
 import sqlite3
 import hashlib
 from datetime import datetime, time as dtime
-import pytz
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from datetime import timezone, timedelta
+    class ZoneInfo:
+        def __init__(self, key):
+            self.tz = timezone(timedelta(hours=5, minutes=30))
+        def utcoffset(self, dt):
+            return timedelta(hours=5, minutes=30)
+        def tzname(self, dt):
+            return "IST"
+        def dst(self, dt):
+            return timedelta(0)
+
 import requests
 import streamlit as st
 import yfinance as yf
@@ -62,7 +75,6 @@ def init_db():
                 exchange VARCHAR(10) DEFAULT 'NSE'
             );
         """)
-        # Safe migration if table already existed without mpin_hash
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS mpin_hash VARCHAR(256);")
     else:
         c.execute("""
@@ -82,7 +94,6 @@ def init_db():
                 exchange TEXT DEFAULT 'NSE'
             );
         """)
-        # Safe migration for sqlite
         try:
             c.execute("ALTER TABLE users ADD COLUMN mpin_hash TEXT;")
         except Exception:
@@ -278,7 +289,7 @@ NSE_HOLIDAYS_2026 = {
 }
 
 def get_market_calendar_status():
-    ist = pytz.timezone('Asia/Kolkata')
+    ist = ZoneInfo('Asia/Kolkata')
     now_ist = datetime.now(ist)
     date_str = now_ist.strftime("%Y-%m-%d")
     weekday = now_ist.weekday()
@@ -621,7 +632,6 @@ if not st.session_state.authenticated:
                     else:
                         st.error(f"❌ {msg}")
             
-            # Mobile WebAuthn / Face ID / Fingerprint / Device Lock Trigger
             st.markdown("<div style='text-align: center; margin: 12px 0 6px 0; font-size: 12px; color: #64748b;'>— OR USE PHONE DEVICE LOCK —</div>", unsafe_allow_html=True)
             
             bio_html = """
@@ -656,7 +666,6 @@ if not st.session_state.authenticated:
                                 rpId: window.location.hostname
                             }
                         };
-                        // Invokes native Apple Face ID / Touch ID / Android Biometric prompt
                         await navigator.credentials.get(options).catch(() => {});
                         alert("Device authentication verified! Enter your 4-digit MPIN to complete secure session handshake.");
                     } catch(e) {
