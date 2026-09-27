@@ -454,7 +454,6 @@ st.markdown("""
         --text-muted: #64748B;
     }
 
-    /* Zero horizontal wobble across devices */
     html, body {
         width: 100% !important;
         max-width: 100vw !important;
@@ -462,7 +461,6 @@ st.markdown("""
         background-color: var(--bg-main) !important;
         margin: 0 !important;
         padding: 0 !important;
-        position: relative !important;
     }
 
     * { 
@@ -500,19 +498,6 @@ st.markdown("""
         padding: 0.6rem 0.8rem 2.2rem 0.8rem !important;
         max-width: 100% !important;
         width: 100% !important;
-    }
-
-    /* Fixed 100dvh Lock for Mobile Authentication Screen */
-    .fixed-mobile-login {
-        min-height: 85vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        width: 100% !important;
-        max-width: 440px !important;
-        margin: 0 auto !important;
-        padding: 10px !important;
     }
 
     .market-status-bar {
@@ -615,7 +600,6 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
-    /* Swipeable ribbon on phones, crisp row on laptops */
     @media (max-width: 900px) {
         [data-testid="stHorizontalBlock"] {
             display: flex !important;
@@ -644,7 +628,6 @@ st.markdown("""
         }
     }
 
-    /* Pulse glow animations */
     @keyframes glowGreenTick {
         0% {
             box-shadow: 0 0 0 0 rgba(0, 208, 156, 0.7);
@@ -718,19 +701,16 @@ st.markdown("""
 </style>
 
 <script>
-    // 1. Enforce natural fit across mobile and desktop
     let vp = document.querySelector("meta[name=viewport]");
     if (vp) {
         vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
     }
 
-    // 2. Suppress right-click context menu
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         return false;
     }, { capture: true });
 
-    // 3. Neutralize Developer Inspection Combinations
     document.addEventListener('keydown', function(e) {
         if (e.keyCode === 123) {
             e.preventDefault(); e.stopPropagation(); return false;
@@ -776,7 +756,7 @@ def render_brand_logo(size=30):
     )
 
 # ====================================================
-# AUTO-LOGIN VIA PERSISTENT SESSION TOKEN
+# AUTO-LOGIN & SESSION VERIFICATION
 # ====================================================
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -801,6 +781,16 @@ if "auto_refresh_sec" not in st.session_state:
 if "prev_benchmark_prices" not in st.session_state:
     st.session_state.prev_benchmark_prices = {}
 
+# Check if user explicitly asked to reset session
+if st.query_params.get("logout") == "true":
+    del st.query_params["logout"]
+    if "auth_token" in st.query_params:
+        del st.query_params["auth_token"]
+    st.session_state.authenticated = False
+    st.session_state.current_user = ""
+    st.session_state.user_profile = {}
+
+# Attempt silent auto-login via persistent token
 if not st.session_state.authenticated:
     url_token = st.query_params.get("auth_token", None)
     if url_token:
@@ -860,68 +850,71 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 4. FIXED ZERO-SLIDE MOBILE AUTHENTICATION SCREEN
+# 4. GUARANTEED-VISIBLE AUTHENTICATION SCREEN
 # ====================================================
 if not st.session_state.authenticated:
-    st.markdown("<div class='fixed-mobile-login'>", unsafe_allow_html=True)
-    
+    st.write("")
     logo_html = render_brand_logo(size=36)
-    st.markdown(f"<div style='text-align:center; margin-bottom:12px;'>{logo_html}<p style='color:#64748b; font-size:11px; margin-top:4px;'>Quantitative Equities & Market Terminal</p></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; margin-bottom:14px;'>{logo_html}<p style='color:#64748b; font-size:12px; margin-top:4px;'>Quantitative Equities & Market Terminal</p></div>", unsafe_allow_html=True)
 
-    tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
-    
-    with tab_mpin:
-        with st.form("clean_mpin_form"):
-            m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
-            m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
-            submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
-            if submit_mpin:
-                ok, u_data, msg = verify_user_mpin(m_user, m_pin)
-                if ok:
-                    token = create_user_session(m_user)
-                    st.query_params["auth_token"] = token
-                    st.session_state.authenticated = True
-                    st.session_state.current_user = m_user.strip().lower()
-                    st.session_state.user_profile = u_data
-                    st.rerun()
-                else:
-                    st.error(f"❌ {msg}")
-
-    with tab_pwd:
-        with st.form("clean_login_form"):
-            l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
-            l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
-            submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
-            if submit_login:
-                ok, u_data, msg = verify_user_password(l_user, l_pass)
-                if ok:
-                    token = create_user_session(l_user)
-                    st.query_params["auth_token"] = token
-                    st.session_state.authenticated = True
-                    st.session_state.current_user = l_user.strip().lower()
-                    st.session_state.user_profile = u_data
-                    st.rerun()
-                else:
-                    st.error(f"❌ {msg}")
-
-    with tab_register:
-        with st.form("clean_register_form"):
-            r_user = st.text_input("Username", placeholder="Choose username")
-            r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
-            r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
-            r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
-            submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
-            if submit_reg:
-                if r_pass != r_conf:
-                    st.error("❌ Passwords do not match.")
-                else:
-                    ok, msg = register_user(r_user, r_pass, r_mpin)
+    _, center_col, _ = st.columns([1, 1.6, 1])
+    with center_col:
+        tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
+        
+        with tab_mpin:
+            with st.form("clean_mpin_form"):
+                m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
+                m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
+                st.write("")
+                submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
+                if submit_mpin:
+                    ok, u_data, msg = verify_user_mpin(m_user, m_pin)
                     if ok:
-                        st.success(f"✅ {msg}")
+                        token = create_user_session(m_user)
+                        st.query_params["auth_token"] = token
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = m_user.strip().lower()
+                        st.session_state.user_profile = u_data
+                        st.rerun()
                     else:
                         st.error(f"❌ {msg}")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        with tab_pwd:
+            with st.form("clean_login_form"):
+                l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
+                l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
+                st.write("")
+                submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
+                if submit_login:
+                    ok, u_data, msg = verify_user_password(l_user, l_pass)
+                    if ok:
+                        token = create_user_session(l_user)
+                        st.query_params["auth_token"] = token
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = l_user.strip().lower()
+                        st.session_state.user_profile = u_data
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+
+        with tab_register:
+            with st.form("clean_register_form"):
+                r_user = st.text_input("Username", placeholder="Choose username")
+                r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
+                r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
+                r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
+                st.write("")
+                submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
+                if submit_reg:
+                    if r_pass != r_conf:
+                        st.error("❌ Passwords do not match.")
+                    else:
+                        ok, msg = register_user(r_user, r_pass, r_mpin)
+                        if ok:
+                            st.success(f"✅ {msg}")
+                        else:
+                            st.error(f"❌ {msg}")
+
     render_caution_bar()
     st.stop()
 
@@ -957,6 +950,7 @@ def open_profile_dropdown():
         clear_user_session(user)
         if "auth_token" in st.query_params:
             del st.query_params["auth_token"]
+        st.query_params["logout"] = "true"
         st.session_state.authenticated = False
         st.session_state.current_user = ""
         st.session_state.user_profile = {}
