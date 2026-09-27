@@ -1,0 +1,10 @@
+streamlit
+yfinance
+pandas
+numpy
+plotly
+beautifulsoup4
+requests
+pytz
+psycopg2-binary
+streamlit-autorefresh
