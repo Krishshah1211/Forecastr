@@ -3,6 +3,7 @@ import re
 import json
 import sqlite3
 import hashlib
+import secrets
 from datetime import datetime, time as dtime
 try:
     from zoneinfo import ZoneInfo
@@ -33,7 +34,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
-# 1. DATABASE & ENCRYPTED USER VAULT
+# 1. DATABASE & PERSISTENT SESSION VAULT
 # ====================================================
 DB_URL = None
 try:
@@ -71,12 +72,11 @@ def init_db():
                 salt VARCHAR(100) NOT NULL,
                 password_hash VARCHAR(256) NOT NULL,
                 mpin_hash VARCHAR(256),
+                session_token VARCHAR(256),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_data TEXT
             );
-        """)
-        c.execute("""
             CREATE TABLE IF NOT EXISTS stock_universe (
                 symbol VARCHAR(50) PRIMARY KEY,
                 company_name TEXT,
@@ -84,6 +84,7 @@ def init_db():
             );
         """)
         c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS mpin_hash VARCHAR(256);")
+        c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token VARCHAR(256);")
     else:
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -92,12 +93,11 @@ def init_db():
                 salt TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
                 mpin_hash TEXT,
+                session_token TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_data TEXT
             );
-        """)
-        c.execute("""
             CREATE TABLE IF NOT EXISTS stock_universe (
                 symbol TEXT PRIMARY KEY,
                 company_name TEXT,
@@ -106,6 +106,10 @@ def init_db():
         """)
         try:
             c.execute("ALTER TABLE users ADD COLUMN mpin_hash TEXT;")
+        except Exception:
+            pass
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN session_token TEXT;")
         except Exception:
             pass
 
@@ -133,6 +137,38 @@ def init_db():
     conn.close()
 
 init_db()
+
+def create_user_session(username: str) -> str:
+    token = secrets.token_hex(32)
+    conn = get_db_connection()
+    c = conn.cursor()
+    q = "UPDATE users SET session_token = %s, last_login = CURRENT_TIMESTAMP WHERE username = %s" if IS_POSTGRES else "UPDATE users SET session_token = ?, last_login = CURRENT_TIMESTAMP WHERE username = ?"
+    c.execute(q, (token, username.strip().lower()))
+    conn.commit()
+    conn.close()
+    return token
+
+def verify_session_token(token: str) -> tuple:
+    if not token or len(token) < 20:
+        return False, None, None
+    conn = get_db_connection()
+    c = conn.cursor()
+    q = "SELECT username, user_data FROM users WHERE session_token = %s" if IS_POSTGRES else "SELECT username, user_data FROM users WHERE session_token = ?"
+    c.execute(q, (token,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        u_name, raw_data = row[0], row[1]
+        return True, u_name, json.loads(raw_data) if raw_data else {}
+    return False, None, None
+
+def clear_user_session(username: str):
+    conn = get_db_connection()
+    c = conn.cursor()
+    q = "UPDATE users SET session_token = NULL WHERE username = %s" if IS_POSTGRES else "UPDATE users SET session_token = NULL WHERE username = ?"
+    c.execute(q, (username.strip().lower(),))
+    conn.commit()
+    conn.close()
 
 def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     init_db()
@@ -347,6 +383,8 @@ def get_market_calendar_status():
             "status": "PRE_OPEN",
             "badge": "🟡 PRE-OPEN DISCOVERY (09:00 - 09:15)",
             "message": "Order Matching in progress • Market opens at 09:15 AM",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_open <= curr_time < t_closing_soon:
@@ -354,6 +392,8 @@ def get_market_calendar_status():
             "status": "OPEN",
             "badge": "🟢 MARKET OPEN (Normal Trading)",
             "message": "Continuous Order Execution Active",
+            "is_open": True,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_closing_soon <= curr_time < t_close:
@@ -363,6 +403,8 @@ def get_market_calendar_status():
             "status": "CLOSING_SOON",
             "badge": f"⚠️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
             "message": "Square off intraday positions before 03:30 PM",
+            "is_open": True,
+            "closing_soon": True,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_close <= curr_time < t_post_close:
@@ -370,6 +412,8 @@ def get_market_calendar_status():
             "status": "POST_CLOSE",
             "badge": "🟡 POST-CLOSING SESSION (03:30 - 04:00)",
             "message": "Closing price determination & AMO window",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     else:
@@ -377,11 +421,13 @@ def get_market_calendar_status():
             "status": "CLOSED",
             "badge": "🔴 MARKET CLOSED",
             "message": "Regular trading closed for the day • Opens 09:15 AM next business day",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
 
 # ====================================================
-# 3. PAGE CONFIG & MOBILE-FIRST OPTIMIZED CSS
+# 3. PAGE CONFIG & DESKTOP CSS WITH ANTI-INSPECT
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -394,15 +440,20 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
     
-    * { font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; box-sizing: border-box; }
+    * { 
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; 
+        box-sizing: border-box;
+        -webkit-touch-callout: none;
+    }
     code, .stCode, .mono { font-family: 'JetBrains Mono', monospace !important; }
 
     .stApp {
         background: #080A0F;
         color: #F8FAFC;
+        user-select: none;
+        -webkit-user-select: none;
     }
 
-    /* Suppress unnecessary headers and anchors */
     [data-testid="stHeaderActionElements"],
     div[data-testid="StyledLinkIconContainer"],
     a.anchor-link,
@@ -415,81 +466,90 @@ st.markdown("""
     div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
     div[data-testid="element-container"]:empty { display: none !important; }
 
-    /* Modern Rounded Button Styling */
     div.stButton > button {
-        border-radius: 10px;
+        border-radius: 8px;
         font-weight: 600;
-        min-height: 44px;
-        font-size: 14px;
+        min-height: 38px;
+        font-size: 13px;
         transition: transform 0.1s ease, background 0.2s ease;
     }
     div.stButton > button:active {
         transform: scale(0.98);
     }
 
-    /* Market Status Bar */
     .market-status-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         background: rgba(14, 20, 36, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 8px 14px;
-        border-radius: 12px;
+        padding: 6px 14px;
+        border-radius: 10px;
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.3px;
         margin-bottom: 6px;
     }
 
-    /* MOBILE-SPECIFIC VIEWPORT OPTIMIZATIONS */
-    @media (max-width: 768px) {
+    @media (max-width: 900px) {
         .block-container {
-            padding: 0.8rem 0.6rem 2rem 0.6rem !important;
-        }
-        
-        .market-status-bar {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 4px;
-            font-size: 10px;
+            padding: 0.5rem 0.6rem 2rem 0.6rem !important;
+            max-width: 100% !important;
         }
 
-        /* 2-column touch grids for metrics on phones */
+        [data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            gap: 6px !important;
+            padding-bottom: 4px !important;
+        }
+
         [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            min-width: 48% !important;
-            flex: 1 1 48% !important;
-            margin-bottom: 8px !important;
+            min-width: 140px !important;
+            flex: 0 0 auto !important;
+            padding: 2px !important;
         }
 
-        /* Make dataframes touch scrollable with ease */
+        [data-testid="stMetricValue"] {
+            font-size: 1.15rem !important;
+        }
+        [data-testid="stMetricLabel"] {
+            font-size: 0.75rem !important;
+            white-space: nowrap !important;
+        }
+        [data-testid="stMetricDelta"] {
+            font-size: 0.72rem !important;
+            white-space: nowrap !important;
+        }
+
         div[data-testid="stDataFrame"] {
             width: 100% !important;
             overflow-x: auto !important;
             -webkit-overflow-scrolling: touch;
         }
 
-        /* Enlarge touch targets on mobile */
         div.stButton > button {
-            width: 100% !important;
-            min-height: 46px !important;
-            font-size: 14px !important;
+            min-height: 38px !important;
+            font-size: 12px !important;
+            padding: 4px 8px !important;
         }
     }
 
-    /* Loading Pulse */
     .pulse-container {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 24px 0;
-        margin: 12px 0;
+        padding: 20px 0;
+        margin: 10px 0;
         background: rgba(14, 19, 31, 0.7);
-        border-radius: 14px;
+        border-radius: 12px;
         border: 1px solid rgba(0, 208, 156, 0.18);
     }
-    .stock-loader-svg { width: 100%; max-width: 280px; height: 75px; overflow: visible; }
+    .stock-loader-svg { width: 100%; max-width: 260px; height: 65px; overflow: visible; }
     .chart-glow-path {
         fill: none; stroke: #00D09C; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
         stroke-dasharray: 600; stroke-dashoffset: 600;
@@ -504,11 +564,53 @@ st.markdown("""
     }
     .loading-ticker-text {
         color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        margin-top: 10px; text-transform: uppercase; animation: blinkText 1.4s ease-in-out infinite alternate;
+        margin-top: 8px; text-transform: uppercase; animation: blinkText 1.4s ease-in-out infinite alternate;
         text-align: center;
     }
     @keyframes blinkText { 0% { opacity: 0.4; } 100% { opacity: 1; color: #00D09C; } }
 </style>
+
+<script>
+    // 1. Block Context Menu (Inspect, Source)
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+    }, { capture: true });
+
+    // 2. Intercept and Neutralize Inspection Hotkeys
+    document.addEventListener('keydown', function(e) {
+        if (e.keyCode === 123) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.keyCode === 73 || e.key === 'I' || e.key === 'i')) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.keyCode === 74 || e.key === 'J' || e.key === 'j')) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.keyCode === 67 || e.key === 'C' || e.key === 'c')) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.keyCode === 85 || e.key === 'U' || e.key === 'u')) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+        if ((e.ctrlKey || e.metaKey) && (e.keyCode === 83 || e.key === 'S' || e.key === 's')) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    }, { capture: true });
+</script>
 """, unsafe_allow_html=True)
 
 def render_brand_logo(size=30):
@@ -532,7 +634,9 @@ def render_brand_logo(size=30):
         f'</div>'
     )
 
-# Session State Initialization
+# ====================================================
+# AUTO-LOGIN VIA PERSISTENT SESSION TOKEN
+# ====================================================
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "current_user" not in st.session_state:
@@ -553,6 +657,16 @@ if "auto_refresh_enabled" not in st.session_state:
     st.session_state.auto_refresh_enabled = True
 if "auto_refresh_sec" not in st.session_state:
     st.session_state.auto_refresh_sec = 30
+
+# Check persistent device token from URL query params
+if not st.session_state.authenticated:
+    url_token = st.query_params.get("auth_token", None)
+    if url_token:
+        valid_sess, sess_user, sess_profile = verify_session_token(url_token)
+        if valid_sess:
+            st.session_state.authenticated = True
+            st.session_state.current_user = sess_user
+            st.session_state.user_profile = sess_profile
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
@@ -618,7 +732,7 @@ if not st.session_state.authenticated:
     )
     st.markdown(header_html, unsafe_allow_html=True)
 
-    _, center_col, _ = st.columns([1, 1.5, 1])
+    _, center_col, _ = st.columns([1, 1.4, 1])
     with center_col:
         tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
         
@@ -631,6 +745,8 @@ if not st.session_state.authenticated:
                 if submit_mpin:
                     ok, u_data, msg = verify_user_mpin(m_user, m_pin)
                     if ok:
+                        token = create_user_session(m_user)
+                        st.query_params["auth_token"] = token
                         st.session_state.authenticated = True
                         st.session_state.current_user = m_user.strip().lower()
                         st.session_state.user_profile = u_data
@@ -647,6 +763,8 @@ if not st.session_state.authenticated:
                 if submit_login:
                     ok, u_data, msg = verify_user_password(l_user, l_pass)
                     if ok:
+                        token = create_user_session(l_user)
+                        st.query_params["auth_token"] = token
                         st.session_state.authenticated = True
                         st.session_state.current_user = l_user.strip().lower()
                         st.session_state.user_profile = u_data
@@ -708,6 +826,9 @@ def open_profile_dropdown():
 
     st.markdown("---")
     if st.button("🚪 Logout from Terminal", type="primary", use_container_width=True):
+        clear_user_session(user)
+        if "auth_token" in st.query_params:
+            del st.query_params["auth_token"]
         st.session_state.authenticated = False
         st.session_state.current_user = ""
         st.session_state.user_profile = {}
@@ -1031,10 +1152,8 @@ def fetch_live_stock_news_and_sentiment(symbol: str, company_name: str) -> tuple
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_ipos_tri_source() -> pd.DataFrame:
     records = []
-    
-    # Priority Scraper: Live Grey Market Feed Parser
     headers_req = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
 
@@ -1089,7 +1208,6 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
     except Exception:
         pass
 
-    # Real-time September 2026 Live Market Issues
     return pd.DataFrame([
         {"Category": "Mainboard", "IPO Name": "Shah Investor's Home Ltd", "Price Band": "₹167", "Live GMP": "₹9 (+5.4%)", "Est. Listing Price": "₹176", "Live Subscription": "2.41x", "Current Status": "🟢 Bidding Open"},
         {"Category": "Mainboard", "IPO Name": "Orient Cables Ltd", "Price Band": "₹272", "Live GMP": "₹80 (+29.4%)", "Est. Listing Price": "₹352", "Live Subscription": "2.07x", "Current Status": "🟢 Bidding Open"},
