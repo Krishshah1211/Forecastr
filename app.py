@@ -191,7 +191,8 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "TATAMOTORS", "HYUNDAI"], "searches": []})
     try:
         query = ("INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
-                 if IS_POSTGRES else "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)")
+                 if IS_POSTGRES else "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)"
+        )
         c.execute(query, (username.strip().lower(), salt, pwd_hash, mpin_hash, default_data))
         conn.commit()
         conn.close()
@@ -427,7 +428,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 3. PAGE CONFIG & PERMANENT DESKTOP VIEWPORT ENGINE
+# 3. PAGE CONFIG & ZERO-HORIZONTAL-DRIFT RESPONSIVE CSS
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -453,27 +454,33 @@ st.markdown("""
         --text-muted: #64748B;
     }
 
+    /* Zero horizontal wobble across devices */
+    html, body {
+        width: 100% !important;
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
+        background-color: var(--bg-main) !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        position: relative !important;
+    }
+
     * { 
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important; 
-        box-sizing: border-box;
+        box-sizing: border-box !important;
         -webkit-tap-highlight-color: transparent;
         -webkit-touch-callout: none;
     }
     code, .stCode, .mono { font-family: 'JetBrains Mono', monospace !important; }
-
-    /* Enforce Desktop Width Always Across Mobile / Tablet */
-    html, body {
-        min-width: 1200px !important;
-        overflow-x: auto !important;
-        background-color: var(--bg-main) !important;
-    }
 
     .stApp {
         background-color: var(--bg-main) !important;
         color: var(--text-primary) !important;
         user-select: none;
         -webkit-user-select: none;
-        min-width: 1200px !important;
+        width: 100% !important;
+        max-width: 100vw !important;
+        overflow-x: hidden !important;
     }
 
     header[data-testid="stHeader"],
@@ -490,20 +497,22 @@ st.markdown("""
     div[data-testid="element-container"]:empty { display: none !important; }
 
     .block-container {
-        padding: 0.8rem 1.2rem 2.5rem 1.2rem !important;
+        padding: 0.6rem 0.8rem 2.2rem 0.8rem !important;
         max-width: 100% !important;
+        width: 100% !important;
     }
 
-    /* Fixed 100vh Zero-Scroll Login Viewport */
-    .fixed-login-viewport {
-        height: 82vh !important;
-        max-height: 82vh !important;
-        display: flex !important;
-        flex-direction: column !important;
-        justify-content: center !important;
-        align-items: center !important;
-        overflow: hidden !important;
+    /* Fixed 100dvh Lock for Mobile Authentication Screen */
+    .fixed-mobile-login {
+        min-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        width: 100% !important;
+        max-width: 440px !important;
         margin: 0 auto !important;
+        padding: 10px !important;
     }
 
     .market-status-bar {
@@ -606,15 +615,36 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
-    /* Permanent Desktop Columns Layout */
-    [data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 8px !important;
+    /* Swipeable ribbon on phones, crisp row on laptops */
+    @media (max-width: 900px) {
+        [data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            gap: 6px !important;
+            padding-bottom: 4px !important;
+            scrollbar-width: none;
+        }
+        [data-testid="stHorizontalBlock"]::-webkit-scrollbar {
+            display: none;
+        }
+
+        [data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            min-width: 132px !important;
+            flex: 0 0 auto !important;
+            padding: 1px !important;
+        }
+
+        div[data-testid="stDataFrame"] {
+            width: 100% !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
     }
 
-    /* Directional Pulse Glow Animations */
+    /* Pulse glow animations */
     @keyframes glowGreenTick {
         0% {
             box-shadow: 0 0 0 0 rgba(0, 208, 156, 0.7);
@@ -688,18 +718,13 @@ st.markdown("""
 </style>
 
 <script>
-    // 1. Force Browser Into Desktop Viewport
+    // 1. Enforce natural fit across mobile and desktop
     let vp = document.querySelector("meta[name=viewport]");
     if (vp) {
-        vp.setAttribute('content', 'width=1280, initial-scale=0.35, maximum-scale=3.0, user-scalable=yes');
-    } else {
-        let meta = document.createElement('meta');
-        meta.name = "viewport";
-        meta.content = "width=1280, initial-scale=0.35, maximum-scale=3.0, user-scalable=yes";
-        document.getElementsByTagName('head')[0].appendChild(meta);
+        vp.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
     }
 
-    // 2. Hard Block Context Menu
+    // 2. Suppress right-click context menu
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         return false;
@@ -835,92 +860,78 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 4. FIXED ZERO-SCROLL LOGIN SCREEN ("NO NEED TO SLIDE")
+# 4. FIXED ZERO-SLIDE MOBILE AUTHENTICATION SCREEN
 # ====================================================
 if not st.session_state.authenticated:
-    st.markdown("<div class='fixed-login-viewport'>", unsafe_allow_html=True)
+    st.markdown("<div class='fixed-mobile-login'>", unsafe_allow_html=True)
     
     logo_html = render_brand_logo(size=36)
-    header_html = (
-        f'<div style="text-align: center; margin-bottom: 12px;">'
-        f'{logo_html}'
-        f'<p style="color: #64748b; font-size: 11px; margin-top: 4px; letter-spacing: 0.3px;">'
-        f'Quantitative Equities & Market Terminal'
-        f'</p>'
-        f'</div>'
-    )
-    st.markdown(header_html, unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:center; margin-bottom:12px;'>{logo_html}<p style='color:#64748b; font-size:11px; margin-top:4px;'>Quantitative Equities & Market Terminal</p></div>", unsafe_allow_html=True)
 
-    _, center_col, _ = st.columns([1, 1.1, 1])
-    with center_col:
-        tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
-        
-        with tab_mpin:
-            with st.form("clean_mpin_form"):
-                m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
-                m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
-                submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
-                if submit_mpin:
-                    ok, u_data, msg = verify_user_mpin(m_user, m_pin)
+    tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
+    
+    with tab_mpin:
+        with st.form("clean_mpin_form"):
+            m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
+            m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
+            submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
+            if submit_mpin:
+                ok, u_data, msg = verify_user_mpin(m_user, m_pin)
+                if ok:
+                    token = create_user_session(m_user)
+                    st.query_params["auth_token"] = token
+                    st.session_state.authenticated = True
+                    st.session_state.current_user = m_user.strip().lower()
+                    st.session_state.user_profile = u_data
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg}")
+
+    with tab_pwd:
+        with st.form("clean_login_form"):
+            l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
+            l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
+            submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
+            if submit_login:
+                ok, u_data, msg = verify_user_password(l_user, l_pass)
+                if ok:
+                    token = create_user_session(l_user)
+                    st.query_params["auth_token"] = token
+                    st.session_state.authenticated = True
+                    st.session_state.current_user = l_user.strip().lower()
+                    st.session_state.user_profile = u_data
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg}")
+
+    with tab_register:
+        with st.form("clean_register_form"):
+            r_user = st.text_input("Username", placeholder="Choose username")
+            r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
+            r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
+            r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
+            submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
+            if submit_reg:
+                if r_pass != r_conf:
+                    st.error("❌ Passwords do not match.")
+                else:
+                    ok, msg = register_user(r_user, r_pass, r_mpin)
                     if ok:
-                        token = create_user_session(m_user)
-                        st.query_params["auth_token"] = token
-                        st.session_state.authenticated = True
-                        st.session_state.current_user = m_user.strip().lower()
-                        st.session_state.user_profile = u_data
-                        st.rerun()
+                        st.success(f"✅ {msg}")
                     else:
                         st.error(f"❌ {msg}")
-
-        with tab_pwd:
-            with st.form("clean_login_form"):
-                l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
-                l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
-                submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
-                if submit_login:
-                    ok, u_data, msg = verify_user_password(l_user, l_pass)
-                    if ok:
-                        token = create_user_session(l_user)
-                        st.query_params["auth_token"] = token
-                        st.session_state.authenticated = True
-                        st.session_state.current_user = l_user.strip().lower()
-                        st.session_state.user_profile = u_data
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {msg}")
-
-        with tab_register:
-            with st.form("clean_register_form"):
-                r_user = st.text_input("Username", placeholder="Choose username")
-                r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
-                r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
-                r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
-                submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
-                if submit_reg:
-                    if r_pass != r_conf:
-                        st.error("❌ Passwords do not match.")
-                    else:
-                        ok, msg = register_user(r_user, r_pass, r_mpin)
-                        if ok:
-                            st.success(f"✅ {msg}")
-                        else:
-                            st.error(f"❌ {msg}")
 
     st.markdown("</div>", unsafe_allow_html=True)
     render_caution_bar()
     st.stop()
 
 # ====================================================
-# 5. PROFILE DIALOG
+# 5. PROFILE DIALOG (CLEAN SANITIZED UI)
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
     user = st.session_state.current_user
-    st.markdown(f"""
-    <div style="background: #111722; padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 12px;">
-        <h3 style="margin:0; color: #00D09C; font-size: 18px;">{user.upper()}</h3>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"<div style='background:#111722; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); margin-bottom:12px;'><h3 style='margin:0; color:#00D09C; font-size:18px;'>{user.upper()}</h3></div>", unsafe_allow_html=True)
 
     with st.expander("⚡ Update 4-Digit Fast MPIN", expanded=True):
         new_pin = st.text_input("New 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 1234")
