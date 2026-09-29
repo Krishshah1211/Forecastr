@@ -64,7 +64,6 @@ def hash_secret(secret_str: str, salt: str = None) -> tuple:
     return hashed, salt
 
 def save_to_backup_vault(username, salt, pwd_hash, mpin_hash, user_data):
-    """Saves user data so it survives when Streamlit Cloud container sleeps or wipes SQLite."""
     vault = {}
     if os.path.exists(BACKUP_VAULT_FILE):
         try:
@@ -85,7 +84,6 @@ def save_to_backup_vault(username, salt, pwd_hash, mpin_hash, user_data):
         pass
 
 def restore_from_backup_vault(conn):
-    """Restores saved users into SQLite whenever the cloud reboots."""
     if not os.path.exists(BACKUP_VAULT_FILE):
         return
     try:
@@ -160,7 +158,6 @@ def init_db():
             pass
         conn.commit()
 
-    # Pre-seed default developer account
     DEV_USER = "admin"
     DEV_PASS = "Admin@1234"
     DEV_MPIN = "1234"
@@ -263,7 +260,6 @@ def verify_user_mpin(username: str, mpin: str) -> tuple:
     c.execute(query, (u_clean,))
     row = c.fetchone()
     
-    # Check persistent mirror if SQLite was wiped
     if not row and os.path.exists(BACKUP_VAULT_FILE):
         restore_from_backup_vault(conn)
         c.execute(query, (u_clean,))
@@ -303,7 +299,6 @@ def verify_user_password(username: str, password: str) -> tuple:
     c.execute(query, (u_clean,))
     row = c.fetchone()
     
-    # Check persistent mirror if SQLite was wiped
     if not row and os.path.exists(BACKUP_VAULT_FILE):
         restore_from_backup_vault(conn)
         c.execute(query, (u_clean,))
@@ -454,6 +449,8 @@ def get_market_calendar_status():
             "status": "PRE_SESSION",
             "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
             "message": "Normal trading starts at 09:15 AM IST",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_pre_open <= curr_time < t_open:
@@ -505,7 +502,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 3. CLEAN THEME (PREVENTS ICON TEXT LEAKS)
+# 3. PAGE CONFIG & ZERO-HORIZONTAL-DRIFT RESPONSIVE CSS
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -542,7 +539,7 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important; 
     }
 
-    /* Never let custom fonts override Streamlit icon fonts */
+    /* Never override Streamlit's native icon glyphs */
     [data-testid="stIcon"],
     [data-testid="stExpanderToggleIcon"],
     span[class*="material-symbols"],
@@ -998,6 +995,7 @@ def load_all_indian_stocks_universe() -> dict:
         "ABB": {"name": "ABB India Ltd", "symbol": "ABB", "bse": "500002"}
     }
 
+    # 1. Load locally registered dynamic scrips
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1011,18 +1009,35 @@ def load_all_indian_stocks_universe() -> dict:
     except Exception:
         pass
 
+    # 2. Ingest Master NSE Equities CSV
     try:
         url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
-        res = requests.get(url, headers=HEADERS, timeout=2.0)
+        res = requests.get(url, headers=HEADERS, timeout=2.2)
         if res.status_code == 200:
             lines = res.text.split("\n")
-            for line in lines[1:3000]:
+            for line in lines[1:4000]:
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 2:
                     sym = parts[0].strip().upper()
                     name = parts[1].strip()
                     if sym and len(sym) >= 2 and not sym.startswith("SYMBOL") and sym not in universe:
                         universe[sym] = {"name": name, "symbol": sym, "bse": ""}
+    except Exception:
+        pass
+
+    # 3. Ingest NSE Emerge SME Equities CSV
+    try:
+        url_sme = "https://archives.nseindia.com/content/equities/sme_bands_complete.csv"
+        res_s = requests.get(url_sme, headers=HEADERS, timeout=2.0)
+        if res_s.status_code == 200:
+            lines = res_s.text.split("\n")
+            for line in lines[1:]:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    sym = parts[0].strip().upper()
+                    name = parts[1].strip() if len(parts) > 1 else sym
+                    if sym and len(sym) >= 2 and sym not in universe:
+                        universe[sym] = {"name": f"{name} (SME)", "symbol": sym, "bse": ""}
     except Exception:
         pass
 
@@ -1037,21 +1052,35 @@ def get_suggestion_list() -> list:
     options.sort()
     return options
 
-def resolve_symbol_from_selection(selection: str) -> dict:
-    if not selection:
+def resolve_symbol_from_selection(query_str: str) -> dict:
+    if not query_str:
         return {"name": "RELIANCE", "symbol": "RELIANCE", "bse": "500325"}
     
-    clean = selection.split("—")[0].strip().upper() if "—" in selection else selection.strip().upper()
+    clean = query_str.split("—")[0].strip().upper() if "—" in query_str else query_str.strip().upper()
     clean = clean.replace(".NS", "").replace(".BO", "")
     
+    # Common name mapping overrides
+    name_map = {
+        "VADILAL": "VADILALIND",
+        "VADILAL INDUSTRIES": "VADILALIND",
+        "RELIANCE INDUSTRIES": "RELIANCE",
+        "TATA MOTORS": "TATAMOTORS",
+        "HDFC": "HDFCBANK",
+        "STATE BANK OF INDIA": "SBIN",
+        "INFOSYS": "INFY"
+    }
+    if clean in name_map:
+        clean = name_map[clean]
+
     stocks = load_all_indian_stocks_universe()
     if clean in stocks:
         return stocks[clean]
     
     for sym, val in stocks.items():
-        if clean in val.get("name", "").upper():
+        if clean == val.get("name", "").upper() or clean in val.get("name", "").upper():
             return val
     
+    # If not present in pre-cached lists, dynamically register
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1613,41 +1642,32 @@ st.markdown("---")
 all_suggestions = get_suggestion_list()
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER (VOLUME & ORDER-FLOW)
+# TAB 1: UNIVERSAL STOCK ANALYZER (SINGLE UNIFIED SEARCH)
 # ====================================================
 if st.session_state.current_tab == "universal":
-    c_s1, c_s2, c_s3 = st.columns([3.5, 2.5, 1])
-    with c_s1:
-        selected_option = st.selectbox(
-            "Select stock from list:",
+    c_input, c_btn = st.columns([5, 1])
+    with c_input:
+        unified_query = st.selectbox(
+            "Search Any Indian Stock (Type symbol or company name):",
             options=all_suggestions,
             index=None,
-            placeholder="Select from list (e.g. Vadilal, Reliance)...",
+            placeholder="Type any stock, SME or symbol (e.g. Vadilal, Reliance, Hyundai, Suzlon)...",
             label_visibility="collapsed",
-            key="universal_selectbox_search"
+            key="universal_unified_search_bar"
         )
-    with c_s2:
-        custom_input = st.text_input(
-            "Or type any stock name or symbol:",
-            placeholder="Type any ticker (e.g. VADILALIND, SWIGGY)...",
-            label_visibility="collapsed",
-            key="universal_custom_ticker_search"
-        )
-    with c_s3:
+    with c_btn:
         submitted = st.button("🚀 Analyze", type="primary", use_container_width=True)
 
-    if submitted:
-        chosen_search = custom_input.strip() if custom_input.strip() else selected_option
-        if chosen_search:
-            st.session_state.universal_query = chosen_search
-            clean_code = chosen_search.split("—")[0].strip().upper() if "—" in chosen_search else chosen_search.strip().upper()
-            if "searches" not in st.session_state.user_profile:
-                st.session_state.user_profile["searches"] = []
-            if clean_code not in st.session_state.user_profile["searches"]:
-                st.session_state.user_profile["searches"].append(clean_code)
-                save_user_data(st.session_state.current_user, st.session_state.user_profile)
+    if submitted and unified_query:
+        st.session_state.universal_query = unified_query
+        clean_code = unified_query.split("—")[0].strip().upper() if "—" in unified_query else unified_query.strip().upper()
+        if "searches" not in st.session_state.user_profile:
+            st.session_state.user_profile["searches"] = []
+        if clean_code not in st.session_state.user_profile["searches"]:
+            st.session_state.user_profile["searches"].append(clean_code)
+            save_user_data(st.session_state.current_user, st.session_state.user_profile)
 
-    # Fetch live snapshot for benchmarks
+    # Benchmark Watchlist Chips
     bench_keys = ["RELIANCE", "VADILALIND", "HDFCBANK", "TATAMOTORS", "HYUNDAI", "INFY"]
     bench_data = fetch_benchmark_snapshots(bench_keys)
 
@@ -1770,33 +1790,24 @@ if st.session_state.current_tab == "universal":
     render_caution_bar()
 
 # ====================================================
-# TAB 2: DEDICATED INTRADAY DESK (CONTINUOUS 1-DAY FORECAST)
+# TAB 2: DEDICATED INTRADAY DESK (SINGLE UNIFIED SEARCH)
 # ====================================================
 elif st.session_state.current_tab == "intraday":
-    col_isearch, col_icustom, col_ibtn = st.columns([3.5, 2.5, 1])
-    with col_isearch:
+    col_iinput, col_ibtn = st.columns([5, 1])
+    with col_iinput:
         selected_intra = st.selectbox(
             "Search Intraday Stock:",
             options=all_suggestions,
             index=None,
-            placeholder="Select from list...",
+            placeholder="Type symbol or company name (e.g. Vadilal, Reliance, Tata Motors)...",
             label_visibility="collapsed",
-            key="intraday_selectbox_search"
-        )
-    with col_icustom:
-        custom_intra = st.text_input(
-            "Or type ticker:",
-            placeholder="Type symbol (e.g. VADILALIND, RELIANCE)...",
-            label_visibility="collapsed",
-            key="intraday_custom_input_search"
+            key="intraday_unified_search_bar"
         )
     with col_ibtn:
         scan_submitted = st.button("⚡ Scan", type="primary", use_container_width=True)
 
-    if scan_submitted:
-        chosen_intra = custom_intra.strip() if custom_intra.strip() else selected_intra
-        if chosen_intra:
-            st.session_state.intraday_query = chosen_intra
+    if scan_submitted and selected_intra:
+        st.session_state.intraday_query = selected_intra
 
     if st.session_state.intraday_query:
         meta = resolve_symbol_from_selection(st.session_state.intraday_query)
