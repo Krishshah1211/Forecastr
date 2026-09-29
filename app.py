@@ -34,7 +34,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
-# 1. DATABASE & PERSISTENT SESSION VAULT
+# 1. DATABASE & PERMANENT USER PERSISTENCE VAULT
 # ====================================================
 DB_URL = None
 try:
@@ -49,6 +49,8 @@ if IS_POSTGRES:
     import psycopg2
     from psycopg2.extras import RealDictCursor
 
+BACKUP_VAULT_FILE = "users_registry.json"
+
 def get_db_connection():
     if IS_POSTGRES:
         return psycopg2.connect(DB_URL, sslmode="require")
@@ -60,6 +62,49 @@ def hash_secret(secret_str: str, salt: str = None) -> tuple:
         salt = os.urandom(16).hex()
     hashed = hashlib.sha256((secret_str + salt).encode('utf-8')).hexdigest()
     return hashed, salt
+
+def save_to_backup_vault(username, salt, pwd_hash, mpin_hash, user_data):
+    """Saves user data so it survives when Streamlit Cloud container sleeps or wipes SQLite."""
+    vault = {}
+    if os.path.exists(BACKUP_VAULT_FILE):
+        try:
+            with open(BACKUP_VAULT_FILE, "r") as f:
+                vault = json.load(f)
+        except Exception:
+            vault = {}
+    vault[username.lower()] = {
+        "salt": salt,
+        "password_hash": pwd_hash,
+        "mpin_hash": mpin_hash,
+        "user_data": user_data
+    }
+    try:
+        with open(BACKUP_VAULT_FILE, "w") as f:
+            json.dump(vault, f)
+    except Exception:
+        pass
+
+def restore_from_backup_vault(conn):
+    """Restores saved users into SQLite whenever the cloud reboots."""
+    if not os.path.exists(BACKUP_VAULT_FILE):
+        return
+    try:
+        with open(BACKUP_VAULT_FILE, "r") as f:
+            vault = json.load(f)
+        c = conn.cursor()
+        for u, d in vault.items():
+            query = "SELECT id FROM users WHERE username = %s" if IS_POSTGRES else "SELECT id FROM users WHERE username = ?"
+            c.execute(query, (u,))
+            if not c.fetchone():
+                ins = (
+                    "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)"
+                    if IS_POSTGRES else
+                    "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)"
+                )
+                c.execute(ins, (u, d["salt"], d["password_hash"], d["mpin_hash"], json.dumps(d.get("user_data", {}))))
+        conn.commit()
+    except Exception:
+        pass
 
 def init_db():
     conn = get_db_connection()
@@ -115,6 +160,7 @@ def init_db():
             pass
         conn.commit()
 
+    # Pre-seed default developer account
     DEV_USER = "admin"
     DEV_PASS = "Admin@1234"
     DEV_MPIN = "1234"
@@ -125,7 +171,7 @@ def init_db():
         salt = os.urandom(16).hex()
         pwd_hash = hashlib.sha256((DEV_PASS + salt).encode('utf-8')).hexdigest()
         mpin_h = hashlib.sha256((DEV_MPIN + salt).encode('utf-8')).hexdigest()
-        dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "HDFCBANK", "HYUNDAI"], "searches": []})
+        dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "VADILALIND", "HDFCBANK"], "searches": []})
         insert_query = (
             "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
             if IS_POSTGRES else 
@@ -133,7 +179,9 @@ def init_db():
         )
         c.execute(insert_query, (DEV_USER, salt, pwd_hash, mpin_h, dev_data))
         conn.commit()
+        save_to_backup_vault(DEV_USER, salt, pwd_hash, mpin_h, json.loads(dev_data))
 
+    restore_from_backup_vault(conn)
     conn.close()
 
 init_db()
@@ -172,14 +220,15 @@ def clear_user_session(username: str):
 
 def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     init_db()
-    if " " in username or re.search(r'\s', username):
+    u_clean = username.strip().lower()
+    if " " in u_clean or re.search(r'\s', u_clean):
         return False, "Username cannot contain spaces."
     if " " in password or re.search(r'\s', password):
         return False, "Password cannot contain spaces."
     if not re.match(r'^\d{4}$', str(mpin).strip()):
         return False, "MPIN must be exactly 4 digits."
     
-    if len(username.strip()) < 3:
+    if len(u_clean) < 3:
         return False, "Username must be at least 3 characters."
     if len(password.strip()) < 6:
         return False, "Password must be at least 6 characters."
@@ -188,14 +237,15 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     c = conn.cursor()
     pwd_hash, salt = hash_secret(password)
     mpin_hash, _ = hash_secret(str(mpin).strip(), salt)
-    default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "HDFCBANK", "HYUNDAI"], "searches": []})
+    default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "VADILALIND", "HDFCBANK"], "searches": []})
     try:
         query = ("INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
                  if IS_POSTGRES else "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (?, ?, ?, ?, ?)"
         )
-        c.execute(query, (username.strip().lower(), salt, pwd_hash, mpin_hash, default_data))
+        c.execute(query, (u_clean, salt, pwd_hash, mpin_hash, default_data))
         conn.commit()
         conn.close()
+        save_to_backup_vault(u_clean, salt, pwd_hash, mpin_hash, json.loads(default_data))
         return True, "Account registered! You can now log in with MPIN or Password."
     except Exception:
         conn.close()
@@ -203,17 +253,25 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
 
 def verify_user_mpin(username: str, mpin: str) -> tuple:
     init_db()
+    u_clean = username.strip().lower()
     if not re.match(r'^\d{4}$', str(mpin).strip()):
         return False, None, "MPIN must be exactly 4 digits."
 
     conn = get_db_connection()
     c = conn.cursor()
     query = "SELECT id, salt, mpin_hash, user_data FROM users WHERE username = %s" if IS_POSTGRES else "SELECT id, salt, mpin_hash, user_data FROM users WHERE username = ?"
-    c.execute(query, (username.strip().lower(),))
+    c.execute(query, (u_clean,))
     row = c.fetchone()
+    
+    # Check persistent mirror if SQLite was wiped
+    if not row and os.path.exists(BACKUP_VAULT_FILE):
+        restore_from_backup_vault(conn)
+        c.execute(query, (u_clean,))
+        row = c.fetchone()
+
     if not row:
         conn.close()
-        return False, None, "Username not found."
+        return False, None, "Username not found. Please register or check spelling."
     
     user_id, salt, stored_mpin_h, raw_data = row[0], row[1], row[2], row[3]
     if not stored_mpin_h:
@@ -233,7 +291,8 @@ def verify_user_mpin(username: str, mpin: str) -> tuple:
 
 def verify_user_password(username: str, password: str) -> tuple:
     init_db()
-    if " " in username or re.search(r'\s', username):
+    u_clean = username.strip().lower()
+    if " " in u_clean or re.search(r'\s', u_clean):
         return False, None, "Username cannot contain spaces."
     if " " in password or re.search(r'\s', password):
         return False, None, "Password cannot contain spaces."
@@ -241,11 +300,18 @@ def verify_user_password(username: str, password: str) -> tuple:
     conn = get_db_connection()
     c = conn.cursor()
     query = "SELECT id, salt, password_hash, user_data FROM users WHERE username = %s" if IS_POSTGRES else "SELECT id, salt, password_hash, user_data FROM users WHERE username = ?"
-    c.execute(query, (username.strip().lower(),))
+    c.execute(query, (u_clean,))
     row = c.fetchone()
+    
+    # Check persistent mirror if SQLite was wiped
+    if not row and os.path.exists(BACKUP_VAULT_FILE):
+        restore_from_backup_vault(conn)
+        c.execute(query, (u_clean,))
+        row = c.fetchone()
+
     if not row:
         conn.close()
-        return False, None, "User not found."
+        return False, None, "Username not found. Please register."
     
     user_id, salt, stored_hash, raw_data = row[0], row[1], row[2], row[3]
     calc_hash, _ = hash_secret(password, salt)
@@ -261,27 +327,30 @@ def verify_user_password(username: str, password: str) -> tuple:
 
 def update_user_mpin(username: str, new_mpin: str) -> tuple:
     init_db()
+    u_clean = username.strip().lower()
     if not re.match(r'^\d{4}$', str(new_mpin).strip()):
         return False, "MPIN must be exactly 4 digits."
     conn = get_db_connection()
     c = conn.cursor()
-    query = "SELECT salt FROM users WHERE username = %s" if IS_POSTGRES else "SELECT salt FROM users WHERE username = ?"
-    c.execute(query, (username.strip().lower(),))
+    query = "SELECT salt, password_hash, user_data FROM users WHERE username = %s" if IS_POSTGRES else "SELECT salt, password_hash, user_data FROM users WHERE username = ?"
+    c.execute(query, (u_clean,))
     row = c.fetchone()
     if not row:
         conn.close()
         return False, "User not found."
     
-    salt = row[0]
+    salt, pwd_hash, raw_data = row[0], row[1], row[2]
     new_h, _ = hash_secret(str(new_mpin).strip(), salt)
     up_q = "UPDATE users SET mpin_hash = %s WHERE username = %s" if IS_POSTGRES else "UPDATE users SET mpin_hash = ? WHERE username = ?"
-    c.execute(up_q, (new_h, username.strip().lower()))
+    c.execute(up_q, (new_h, u_clean))
     conn.commit()
     conn.close()
+    save_to_backup_vault(u_clean, salt, pwd_hash, new_h, json.loads(raw_data) if raw_data else {})
     return True, "4-Digit MPIN updated successfully!"
 
 def update_user_password(username: str, old_pass: str, new_pass: str) -> tuple:
     init_db()
+    u_clean = username.strip().lower()
     if " " in new_pass or re.search(r'\s', new_pass):
         return False, "New password cannot contain spaces."
     if len(new_pass.strip()) < 6:
@@ -289,14 +358,14 @@ def update_user_password(username: str, old_pass: str, new_pass: str) -> tuple:
 
     conn = get_db_connection()
     c = conn.cursor()
-    query = "SELECT salt, password_hash FROM users WHERE username = %s" if IS_POSTGRES else "SELECT salt, password_hash FROM users WHERE username = ?"
-    c.execute(query, (username.strip().lower(),))
+    query = "SELECT salt, password_hash, mpin_hash, user_data FROM users WHERE username = %s" if IS_POSTGRES else "SELECT salt, password_hash, mpin_hash, user_data FROM users WHERE username = ?"
+    c.execute(query, (u_clean,))
     row = c.fetchone()
     if not row:
         conn.close()
         return False, "User not found."
     
-    salt, stored_hash = row[0], row[1]
+    salt, stored_hash, mpin_h, raw_data = row[0], row[1], row[2], row[3]
     calc_hash, _ = hash_secret(old_pass, salt)
     if calc_hash != stored_hash:
         conn.close()
@@ -304,19 +373,27 @@ def update_user_password(username: str, old_pass: str, new_pass: str) -> tuple:
     
     new_hash, new_salt = hash_secret(new_pass)
     up_q = "UPDATE users SET salt = %s, password_hash = %s WHERE username = %s" if IS_POSTGRES else "UPDATE users SET salt = ?, password_hash = ? WHERE username = ?"
-    c.execute(up_q, (new_salt, new_hash, username.strip().lower()))
+    c.execute(up_q, (new_salt, new_hash, u_clean))
     conn.commit()
     conn.close()
+    save_to_backup_vault(u_clean, new_salt, new_hash, mpin_h, json.loads(raw_data) if raw_data else {})
     return True, "Password updated successfully!"
 
 def save_user_data(username: str, data_dict: dict):
     init_db()
+    u_clean = username.strip().lower()
     conn = get_db_connection()
     c = conn.cursor()
     up_q = "UPDATE users SET user_data = %s WHERE username = %s" if IS_POSTGRES else "UPDATE users SET user_data = ? WHERE username = ?"
-    c.execute(up_q, (json.dumps(data_dict), username.strip().lower()))
+    c.execute(up_q, (json.dumps(data_dict), u_clean))
     conn.commit()
+    
+    query = "SELECT salt, password_hash, mpin_hash FROM users WHERE username = %s" if IS_POSTGRES else "SELECT salt, password_hash, mpin_hash FROM users WHERE username = ?"
+    c.execute(query, (u_clean,))
+    row = c.fetchone()
     conn.close()
+    if row:
+        save_to_backup_vault(u_clean, row[0], row[1], row[2], data_dict)
 
 # ====================================================
 # 2. MARKET CALENDAR & COUNTDOWN ENGINE
@@ -377,8 +454,6 @@ def get_market_calendar_status():
             "status": "PRE_SESSION",
             "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
             "message": "Normal trading starts at 09:15 AM IST",
-            "is_open": False,
-            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_pre_open <= curr_time < t_open:
@@ -430,7 +505,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 3. CLEAN, RESPONSIVE THEME (NO ICON/EXPANDER CORRUPTION)
+# 3. CLEAN THEME (PREVENTS ICON TEXT LEAKS)
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -453,7 +528,6 @@ st.markdown("""
         --text-secondary: #94A3B8;
     }
 
-    /* Target specific text elements rather than wildcard to protect icon ligatures */
     .stApp {
         background-color: var(--bg-main) !important;
         color: var(--text-primary) !important;
@@ -468,7 +542,7 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important; 
     }
 
-    /* Never let text fonts override Material Icons or SVG icons */
+    /* Never let custom fonts override Streamlit icon fonts */
     [data-testid="stIcon"],
     [data-testid="stExpanderToggleIcon"],
     span[class*="material-symbols"],
@@ -478,7 +552,6 @@ st.markdown("""
         font-family: inherit !important;
     }
 
-    /* Suppress unnecessary headers and anchors */
     header[data-testid="stHeader"],
     [data-testid="stHeaderActionElements"],
     div[data-testid="StyledLinkIconContainer"],
@@ -492,13 +565,11 @@ st.markdown("""
     div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
     div[data-testid="element-container"]:empty { display: none !important; }
 
-    /* Clean spacing */
     .block-container {
         padding: 0.8rem 1rem 2rem 1rem !important;
         max-width: 100% !important;
     }
 
-    /* Clean status pill */
     .market-status-bar {
         display: flex;
         align-items: center;
@@ -512,7 +583,6 @@ st.markdown("""
         margin-bottom: 8px;
     }
 
-    /* Standard Card-Style Metrics */
     div[data-testid="stMetric"] {
         background: var(--bg-card);
         border: 1px solid var(--border-subtle);
@@ -532,7 +602,6 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* Standard Buttons */
     div.stButton > button {
         background: var(--bg-card);
         color: var(--text-primary);
@@ -549,7 +618,6 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* Clean Benchmark watchlist buttons */
     div.stButton > button p {
         margin: 0 !important;
         padding: 0 !important;
@@ -563,7 +631,6 @@ st.markdown("""
         color: #FFFFFF !important;
     }
 
-    /* Pulse animations on ticker updates */
     @keyframes glowGreenTick {
         0% { border-color: #00D09C !important; background-color: rgba(0, 208, 156, 0.2) !important; }
         100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
@@ -580,7 +647,6 @@ st.markdown("""
         animation: glowRedTick 1.2s ease-out !important;
     }
 
-    /* Pulse graph loader */
     .pulse-container {
         display: flex;
         flex-direction: column;
@@ -611,13 +677,11 @@ st.markdown("""
 </style>
 
 <script>
-    // Suppress right-click context menu
     document.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         return false;
     }, { capture: true });
 
-    // Block F12, Ctrl+Shift+I/J/C, Ctrl+U
     document.addEventListener('keydown', function(e) {
         if (e.keyCode === 123) {
             e.preventDefault(); e.stopPropagation(); return false;
@@ -871,11 +935,12 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 6. ALL-INDIA COMPLETE MASTER UNIVERSE
+# 6. UNIVERSAL ALL-INDIA STOCK UNIVERSE ENGINE
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
     universe = {
+        "VADILALIND": {"name": "Vadilal Industries Ltd", "symbol": "VADILALIND", "bse": "519156"},
         "RELIANCE": {"name": "Reliance Industries Ltd", "symbol": "RELIANCE", "bse": "500325"},
         "TCS": {"name": "Tata Consultancy Services Ltd", "symbol": "TCS", "bse": "532540"},
         "HDFCBANK": {"name": "HDFC Bank Ltd", "symbol": "HDFCBANK", "bse": "500180"},
@@ -951,7 +1016,7 @@ def load_all_indian_stocks_universe() -> dict:
         res = requests.get(url, headers=HEADERS, timeout=2.0)
         if res.status_code == 200:
             lines = res.text.split("\n")
-            for line in lines[1:2500]:
+            for line in lines[1:3000]:
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 2:
                     sym = parts[0].strip().upper()
@@ -975,11 +1040,18 @@ def get_suggestion_list() -> list:
 def resolve_symbol_from_selection(selection: str) -> dict:
     if not selection:
         return {"name": "RELIANCE", "symbol": "RELIANCE", "bse": "500325"}
+    
     clean = selection.split("—")[0].strip().upper() if "—" in selection else selection.strip().upper()
     clean = clean.replace(".NS", "").replace(".BO", "")
+    
     stocks = load_all_indian_stocks_universe()
     if clean in stocks:
         return stocks[clean]
+    
+    for sym, val in stocks.items():
+        if clean in val.get("name", "").upper():
+            return val
+    
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -991,6 +1063,7 @@ def resolve_symbol_from_selection(selection: str) -> dict:
         conn.close()
     except Exception:
         pass
+    
     return {"name": clean, "symbol": clean, "bse": ""}
 
 # ====================================================
@@ -1001,7 +1074,7 @@ def fetch_benchmark_snapshots(symbols: list) -> dict:
     results = {}
     defaults = {
         "RELIANCE": {"price": 1226.0, "pct": 0.56},
-        "TCS": {"price": 3890.0, "pct": -0.42},
+        "VADILALIND": {"price": 7565.0, "pct": 1.84},
         "HDFCBANK": {"price": 1640.2, "pct": 0.85},
         "TATAMOTORS": {"price": 795.5, "pct": 1.14},
         "HYUNDAI": {"price": 1820.0, "pct": -1.10},
@@ -1034,22 +1107,30 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
     live_volume = 0
     bid_ask_ratio = 1.0
 
-    for exch in [f"{symbol}:NSE", f"{symbol}:BOM", f"{bse_code}:BOM" if bse_code else ""]:
-        if not exch:
-            continue
-        try:
-            url_g = f"https://www.google.com/finance/quote/{exch}"
-            rg = requests.get(url_g, headers=HEADERS, timeout=2.5)
-            if rg.status_code == 200:
-                soup = BeautifulSoup(rg.text, "html.parser")
-                el = soup.find("div", {"class": "YMlKec fxKbKc"})
-                if el:
-                    val = float(el.text.replace("₹", "").replace(",", "").strip())
-                    if val > 0:
-                        live_price = val
-                        break
-        except Exception:
-            continue
+    sym_aliases = [symbol]
+    if "VADILAL" in symbol and symbol != "VADILALIND":
+        sym_aliases.append("VADILALIND")
+
+    for s in sym_aliases:
+        for exch in [f"{s}:NSE", f"{s}:BOM", f"{bse_code}:BOM" if bse_code else ""]:
+            if not exch:
+                continue
+            try:
+                url_g = f"https://www.google.com/finance/quote/{exch}"
+                rg = requests.get(url_g, headers=HEADERS, timeout=2.5)
+                if rg.status_code == 200:
+                    soup = BeautifulSoup(rg.text, "html.parser")
+                    el = soup.find("div", {"class": "YMlKec fxKbKc"})
+                    if el:
+                        val = float(el.text.replace("₹", "").replace(",", "").strip())
+                        if val > 0:
+                            live_price = val
+                            symbol = s
+                            break
+            except Exception:
+                continue
+        if live_price:
+            break
 
     if not live_price:
         try:
@@ -1104,7 +1185,7 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
         live_volume = int(df_5m['Volume'].sum())
 
     if not live_price:
-        fallback_prices = {"HYUNDAI": 1820.0, "SWIGGY": 460.00, "NTPCGREEN": 125.00}
+        fallback_prices = {"VADILALIND": 7565.0, "HYUNDAI": 1820.0, "SWIGGY": 460.00, "NTPCGREEN": 125.00}
         live_price = fallback_prices.get(symbol, 1226.0)
 
     if df_daily.empty:
@@ -1535,37 +1616,45 @@ all_suggestions = get_suggestion_list()
 # TAB 1: UNIVERSAL STOCK ANALYZER (VOLUME & ORDER-FLOW)
 # ====================================================
 if st.session_state.current_tab == "universal":
-    col_search, col_btn = st.columns([5, 1])
-    with col_search:
+    c_s1, c_s2, c_s3 = st.columns([3.5, 2.5, 1])
+    with c_s1:
         selected_option = st.selectbox(
-            "Search Any Indian Stock (Type symbol or company name):",
+            "Select stock from list:",
             options=all_suggestions,
             index=None,
-            placeholder="Type to search stock (e.g. RELIANCE, HYUNDAI, HAL, TATASTEEL, ZOMATO, SUZLON)...",
+            placeholder="Select from list (e.g. Vadilal, Reliance)...",
             label_visibility="collapsed",
             key="universal_selectbox_search"
         )
-    with col_btn:
+    with c_s2:
+        custom_input = st.text_input(
+            "Or type any stock name or symbol:",
+            placeholder="Type any ticker (e.g. VADILALIND, SWIGGY)...",
+            label_visibility="collapsed",
+            key="universal_custom_ticker_search"
+        )
+    with c_s3:
         submitted = st.button("🚀 Analyze", type="primary", use_container_width=True)
 
-    if submitted and selected_option:
-        st.session_state.universal_query = selected_option
-        clean_code = selected_option.split("—")[0].strip().upper() if "—" in selected_option else selected_option.strip().upper()
-        if "searches" not in st.session_state.user_profile:
-            st.session_state.user_profile["searches"] = []
-        if clean_code not in st.session_state.user_profile["searches"]:
-            st.session_state.user_profile["searches"].append(clean_code)
-            save_user_data(st.session_state.current_user, st.session_state.user_profile)
+    if submitted:
+        chosen_search = custom_input.strip() if custom_input.strip() else selected_option
+        if chosen_search:
+            st.session_state.universal_query = chosen_search
+            clean_code = chosen_search.split("—")[0].strip().upper() if "—" in chosen_search else chosen_search.strip().upper()
+            if "searches" not in st.session_state.user_profile:
+                st.session_state.user_profile["searches"] = []
+            if clean_code not in st.session_state.user_profile["searches"]:
+                st.session_state.user_profile["searches"].append(clean_code)
+                save_user_data(st.session_state.current_user, st.session_state.user_profile)
 
-    # 1. Fetch live snapshot for benchmarks
-    bench_keys = ["RELIANCE", "TCS", "HDFCBANK", "TATAMOTORS", "HYUNDAI", "INFY"]
+    # Fetch live snapshot for benchmarks
+    bench_keys = ["RELIANCE", "VADILALIND", "HDFCBANK", "TATAMOTORS", "HYUNDAI", "INFY"]
     bench_data = fetch_benchmark_snapshots(bench_keys)
 
-    # 2. Render benchmark action cards with green/red badges and pulse glow
     q1, q2, q3, q4, q5, q6 = st.columns(6)
     quick_stocks = [
         ("RELIANCE", "Reliance Ind.", q1),
-        ("TCS", "Tata Consultancy", q2),
+        ("VADILALIND", "Vadilal Ind.", q2),
         ("HDFCBANK", "HDFC Bank", q3),
         ("TATAMOTORS", "Tata Motors", q4),
         ("HYUNDAI", "Hyundai Motor", q5),
@@ -1684,21 +1773,30 @@ if st.session_state.current_tab == "universal":
 # TAB 2: DEDICATED INTRADAY DESK (CONTINUOUS 1-DAY FORECAST)
 # ====================================================
 elif st.session_state.current_tab == "intraday":
-    col_isearch, col_ibtn = st.columns([5, 1])
+    col_isearch, col_icustom, col_ibtn = st.columns([3.5, 2.5, 1])
     with col_isearch:
         selected_intra = st.selectbox(
             "Search Intraday Stock:",
             options=all_suggestions,
             index=None,
-            placeholder="Type symbol to scan intraday pivots (e.g. RELIANCE, SBIN, TATASTEEL)...",
+            placeholder="Select from list...",
             label_visibility="collapsed",
             key="intraday_selectbox_search"
+        )
+    with col_icustom:
+        custom_intra = st.text_input(
+            "Or type ticker:",
+            placeholder="Type symbol (e.g. VADILALIND, RELIANCE)...",
+            label_visibility="collapsed",
+            key="intraday_custom_input_search"
         )
     with col_ibtn:
         scan_submitted = st.button("⚡ Scan", type="primary", use_container_width=True)
 
-    if scan_submitted and selected_intra:
-        st.session_state.intraday_query = selected_intra
+    if scan_submitted:
+        chosen_intra = custom_intra.strip() if custom_intra.strip() else selected_intra
+        if chosen_intra:
+            st.session_state.intraday_query = chosen_intra
 
     if st.session_state.intraday_query:
         meta = resolve_symbol_from_selection(st.session_state.intraday_query)
