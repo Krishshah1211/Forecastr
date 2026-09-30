@@ -34,7 +34,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
-# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS UNCONDITIONALLY)
+# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS UNCONDITIONALLY FIRST)
 # ====================================================
 DEFAULT_STATES = {
     "authenticated": False,
@@ -564,6 +564,7 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important; 
     }
 
+    /* Never override Streamlit's native icon glyphs */
     [data-testid="stIcon"],
     [data-testid="stExpanderToggleIcon"],
     span[class*="material-symbols"],
@@ -723,6 +724,9 @@ st.markdown("""
 </script>
 """, unsafe_allow_html=True)
 
+# ====================================================
+# 4. GLOBAL UI UTILITY FUNCTIONS (AVAILABLE ACROSS ALL SCOPES)
+# ====================================================
 def render_brand_logo(size=30):
     svg_badge = (
         f'<svg width="{size}" height="{size}" viewBox="0 0 38 38" fill="none" style="vertical-align: middle;">'
@@ -744,8 +748,49 @@ def render_brand_logo(size=30):
         f'</div>'
     )
 
+def show_stock_graph_loader(stock_name: str = "ORDER BOOK"):
+    loader_html = f"""
+    <div class="pulse-container">
+        <svg class="stock-loader-svg" viewBox="0 0 300 100">
+            <path class="chart-glow-path-bg" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
+            <path class="chart-glow-path" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
+        </svg>
+        <div class="loading-ticker-text">Scanning Exchange Order Books • {stock_name}</div>
+    </div>
+    """
+    return st.empty().markdown(loader_html, unsafe_allow_html=True)
+
+@st.dialog("⚖️ Statutory Disclaimer & Risk Disclosure")
+def open_legal_dialog():
+    st.markdown("""
+    #### 1. Non-Advisory & Non-SEBI Registration
+    This software (**Forecastr**) is exclusively an educational and quantitative calculation tool. **It is NOT registered as an Investment Adviser or Research Analyst under SEBI Regulations.** 
+
+    #### 2. Deterministic Mathematical Sandbox
+    All price projections, target prices, volatility stops, and Camarilla coordinates are automated calculations based on historical trade ranges. They do **NOT** evaluate human psychology, breaking news, macroeconomic shifts, or black-swan occurrences.
+
+    #### 3. Complete Release of Liability
+    Trading in equities and derivatives involves severe financial risk. Users accept **100% individual responsibility** for their capital. The creators and developers accept **ZERO liability** for any financial gains or losses.
+    """)
+    if st.button("I Understand", type="primary", use_container_width=True):
+        st.rerun()
+
+def render_caution_bar():
+    st.markdown("---")
+    c1, c2 = st.columns([5, 1.2])
+    with c1:
+        st.markdown(
+            "<p style='color: #64748b; font-size: 11px; margin-top: 6px; line-height: 1.4;'>"
+            "⚠️ <b>Caution:</b> Projections and Camarilla levels are mathematical algorithmic calculations only. Equity investments are subject to market risks. Not financial advice."
+            "</p>",
+            unsafe_allow_html=True
+        )
+    with c2:
+        if st.button("Read More", key="btn_read_more_legal", use_container_width=True):
+            open_legal_dialog()
+
 # ====================================================
-# 4. MASTER UNIVERSE & DATA ENGINES
+# 5. MASTER UNIVERSE & DATA ENGINES
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1375,14 +1420,29 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
         "forecast_today": forecast_today
     }
 
-# ====================================================
-# 5. GLOBAL SUGGESTIONS INSTANTIATION (ABOVE ALL UI TABS)
-# ====================================================
+# Pre-compute autocomplete suggestions
 all_suggestions = get_suggestion_list()
 
 # ====================================================
-# 6. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
+# 6. AUTHENTICATION CHECK & LOGIN SCREEN
 # ====================================================
+if st.query_params.get("logout") == "true":
+    del st.query_params["logout"]
+    if "auth_token" in st.query_params:
+        del st.query_params["auth_token"]
+    st.session_state.authenticated = False
+    st.session_state.current_user = ""
+    st.session_state.user_profile = {}
+
+if not st.session_state.authenticated:
+    url_token = st.query_params.get("auth_token", None)
+    if url_token:
+        valid_sess, sess_user, sess_profile = verify_session_token(url_token)
+        if valid_sess:
+            st.session_state.authenticated = True
+            st.session_state.current_user = sess_user
+            st.session_state.user_profile = sess_profile
+
 if not st.session_state.authenticated:
     st.write("")
     st.markdown(
