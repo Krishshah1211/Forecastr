@@ -500,7 +500,7 @@ def get_market_calendar_status():
         mins, secs = divmod(diff_sec, 60)
         return {
             "status": "CLOSING_SOON",
-            "badge": f"⚠️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
+            "badge": f"⚠️️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
             "message": "Square off intraday positions before 03:30 PM",
             "is_open": True,
             "closing_soon": True,
@@ -890,6 +890,8 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
     universe = {
+        "NSE": {"name": "National Stock Exchange of India (BSE: 542649)", "symbol": "NSE", "bse": "542649"},
+        "BSE": {"name": "BSE Limited", "symbol": "BSE", "bse": "542649"},
         "VADILALIND": {"name": "Vadilal Industries Ltd", "symbol": "VADILALIND", "bse": "519156"},
         "BOSCHLTD": {"name": "Bosch Limited", "symbol": "BOSCHLTD", "bse": "500530"},
         "RELIANCE": {"name": "Reliance Industries Ltd", "symbol": "RELIANCE", "bse": "500325"},
@@ -936,7 +938,6 @@ def load_all_indian_stocks_universe() -> dict:
         "MAZDOCK": {"name": "Mazagon Dock Shipbuilders Ltd", "symbol": "MAZDOCK", "bse": "543237"},
         "IDEA": {"name": "Vodafone Idea Ltd", "symbol": "IDEA", "bse": "532822"},
         "YESBANK": {"name": "Yes Bank Ltd", "symbol": "YESBANK", "bse": "532648"},
-        "BSE": {"name": "BSE Limited", "symbol": "BSE", "bse": "542649"},
         "TATASTEEL": {"name": "Tata Steel Ltd", "symbol": "TATASTEEL", "bse": "500470"},
         "JSWSTEEL": {"name": "JSW Steel Ltd", "symbol": "JSWSTEEL", "bse": "500228"},
         "VEDL": {"name": "Vedanta Ltd", "symbol": "VEDL", "bse": "500295"},
@@ -1006,7 +1007,11 @@ def get_suggestion_list() -> list:
 def query_multisource_live_symbol(query_term: str) -> dict:
     headers = {"User-Agent": "Mozilla/5.0"}
     
-    # Source A: Screener.in API
+    # Check for NSE listing on BSE
+    if query_term in ["NSE", "NSEINDIA", "NSE LTD"]:
+        return {"name": "National Stock Exchange of India (BSE: 542649)", "symbol": "NSE", "bse": "542649"}
+
+    # Source A: Screener.in Search
     try:
         url_s = f"https://www.screener.in/api/company/search/?q={query_term}"
         rs = requests.get(url_s, headers=headers, timeout=2.5)
@@ -1023,7 +1028,7 @@ def query_multisource_live_symbol(query_term: str) -> dict:
     except Exception:
         pass
 
-    # Source B: Yahoo Finance Search API
+    # Source B: Yahoo Finance Global Search
     try:
         url_y = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_term}&quotesCount=5&newsCount=0"
         ry = requests.get(url_y, headers=headers, timeout=2.5)
@@ -1048,6 +1053,9 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
     clean = clean.replace(".NS", "").replace(".BO", "")
     
     name_map = {
+        "NSE": "NSE",
+        "NSEINDIA": "NSE",
+        "NSE LIMITED": "NSE",
         "VADILAL": "VADILALIND",
         "VADILAL INDUSTRIES": "VADILALIND",
         "BOSCH": "BOSCHLTD",
@@ -1088,7 +1096,7 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
     return {"name": clean, "symbol": clean, "bse": ""}
 
 # ====================================================
-# 7. QUANT ENGINE & DATA SERVICES (IN GLOBAL SCOPE)
+# 7. QUANT ENGINE & DATA SERVICES (GLOBAL SCOPE)
 # ====================================================
 @st.cache_data(ttl=25, show_spinner=False)
 def fetch_benchmark_snapshots(symbols: list) -> dict:
@@ -1126,6 +1134,9 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
     bid_ask_ratio = 1.0
 
     sym_aliases = [symbol]
+    if symbol in ["NSE", "NSEINDIA"]:
+        sym_aliases.append("542649")
+        bse_code = "542649"
     if "VADILAL" in symbol and symbol != "VADILALIND":
         sym_aliases.append("VADILALIND")
     if "BOSCH" in symbol and symbol != "BOSCHLTD":
@@ -1385,106 +1396,13 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
         {"Category": "SME", "IPO Name": "Robokidz Eduventures SME", "Price Band": "₹106", "Live GMP": "₹55 (+51.9%)", "Est. Listing Price": "₹161", "Live Subscription": "51.89x", "Current Status": "🔴 Allotment Active"}
     ])
 
-def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fundamentals: dict, sentiment_score: int, live_volume: int, bid_ask_ratio: float) -> dict:
-    high = df_daily['High']
-    low = df_daily['Low']
-    close = df_daily['Close']
-    volume = df_daily['Volume']
-
-    tr1 = high - low
-    tr2 = (high - close.shift()).abs()
-    tr3 = (low - close.shift()).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = float(tr.rolling(14).mean().dropna().iloc[-1]) if len(tr.dropna()) >= 14 else float(current_price * 0.02)
-
-    ema_20 = float(close.ewm(span=20).mean().iloc[-1])
-    ema_50 = float(close.ewm(span=50).mean().iloc[-1]) if len(close) >= 50 else ema_20
-    avg_vol_20 = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else float(live_volume)
-    vol_surge_mult = round(live_volume / (avg_vol_20 + 1), 2)
-
-    delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss.replace(0, 0.001)
-    rsi = float((100 - (100 / (1 + rs))).dropna().iloc[-1]) if len(rs.dropna()) > 0 else 50.0
-
-    score = 50
-
-    if current_price > ema_20 and ema_20 > ema_50:
-        score += 20
-    elif current_price < ema_20 and ema_20 < ema_50:
-        score -= 25
-    elif current_price < ema_20:
-        score -= 10
-
-    if bid_ask_ratio > 1.3:
-        score += 15
-    elif bid_ask_ratio < 0.7:
-        score -= 20
-
-    if vol_surge_mult > 1.4:
-        if current_price >= ema_20:
-            score += 10
-        else:
-            score -= 15
-
-    candle_patterns = analyze_candlestick_patterns(df_daily)
-    for p in candle_patterns:
-        score += p["weight"]
-
-    score += int(sentiment_score * 0.30)
-
-    if score >= 75:
-        stance = "STRONG BUY"
-        target = round(current_price + (2.5 * atr), 2)
-        stop = round(current_price - (1.4 * atr), 2)
-        signal_type = "BULLISH"
-        pattern_txt = f" [{candle_patterns[0]['name']}]" if candle_patterns else ""
-        thesis = f"Bullish breakout confirmed by volume surge ({vol_surge_mult}x avg) and buyer book dominance ({bid_ask_ratio}:1).{pattern_txt}"
-    elif score >= 55:
-        stance = "ACCUMULATE / BUY"
-        target = round(current_price + (1.8 * atr), 2)
-        stop = round(current_price - (1.2 * atr), 2)
-        signal_type = "BULLISH"
-        pattern_txt = f" Supported by {candle_patterns[0]['name']}." if candle_patterns else ""
-        thesis = f"Support levels holding with stable buying accumulation across recent candles.{pattern_txt}"
-    elif score <= 30:
-        stance = "STRONG SELL"
-        target = round(max(0, current_price - (2.2 * atr)), 2)
-        stop = round(current_price + (1.3 * atr), 2)
-        signal_type = "BEARISH"
-        pattern_txt = f" Bearish structure: {candle_patterns[0]['name']}." if candle_patterns else ""
-        thesis = f"CRITICAL BREAKDOWN: Heavy liquidation ({bid_ask_ratio}:1 buy/sell ratio) below key EMAs.{pattern_txt}"
-    else:
-        stance = "AVOID / SELL"
-        target = round(max(0, current_price - (1.4 * atr)), 2)
-        stop = round(current_price + (1.0 * atr), 2)
-        signal_type = "BEARISH"
-        thesis = "Distribution phase active. Lack of institutional bidding support."
-
-    confidence = max(55, min(95, abs(score)))
-
-    return {
-        "target": target,
-        "stop": stop,
-        "stance": stance,
-        "signal_type": signal_type,
-        "confidence": confidence,
-        "thesis": thesis,
-        "atr": atr,
-        "rsi": round(rsi, 1),
-        "ema_20": round(ema_20, 2),
-        "ema_50": round(ema_50, 2),
-        "vol_surge_mult": vol_surge_mult,
-        "bid_ask_ratio": bid_ask_ratio,
-        "patterns": candle_patterns
-    }
-
-# Pre-compute autocomplete suggestions (Global Scope)
+# ====================================================
+# 8. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
+# ====================================================
 all_suggestions = get_suggestion_list()
 
 # ====================================================
-# 8. AUTHENTICATION CHECK & PORTAL
+# 9. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -1575,7 +1493,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 9. USER PROFILE SETTINGS DIALOG
+# 10. USER PROFILE SETTINGS DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -1621,7 +1539,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 10. MAIN NAVIGATION HEADER & TOP BAR
+# 11. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
@@ -1691,7 +1609,7 @@ st.markdown("---")
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER (WITH CANDLESTICK DETECTION)
+# TAB 1: UNIVERSAL STOCK ANALYZER
 # ====================================================
 if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
@@ -1700,7 +1618,7 @@ if active_tab == "universal":
             "Search Any Indian Stock (Type symbol or company name):",
             options=all_suggestions,
             index=None,
-            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, Reliance)...",
+            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, NSE, Reliance)...",
             label_visibility="collapsed",
             key="universal_unified_search_bar"
         )
@@ -1848,7 +1766,7 @@ if active_tab == "universal":
     render_caution_bar()
 
 # ====================================================
-# TAB 2: DEDICATED INTRADAY DESK (WITH CANDLESTICK SCAN)
+# TAB 2: DEDICATED INTRADAY DESK
 # ====================================================
 elif active_tab == "intraday":
     col_iinput, col_ibtn = st.columns([5, 1])
@@ -1857,7 +1775,7 @@ elif active_tab == "intraday":
             "Search Intraday Stock:",
             options=all_suggestions,
             index=None,
-            placeholder="Type symbol or company name (e.g. Bosch, Vadilal, Reliance)...",
+            placeholder="Type symbol or company name (e.g. Bosch, Vadilal, NSE, Reliance)...",
             label_visibility="collapsed",
             key="intraday_unified_search_bar"
         )
