@@ -34,6 +34,27 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
+# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS UNCONDITIONALLY FIRST)
+# ====================================================
+DEFAULT_STATES = {
+    "authenticated": False,
+    "current_user": "",
+    "user_profile": {},
+    "current_tab": "universal",
+    "universal_query": "RELIANCE",
+    "intraday_query": "RELIANCE",
+    "ipo_filter": "",
+    "ipo_category_filter": "All",
+    "auto_refresh_enabled": True,
+    "auto_refresh_sec": 30,
+    "prev_benchmark_prices": {}
+}
+
+for k, v in DEFAULT_STATES.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# ====================================================
 # 1. DATABASE & PERMANENT USER PERSISTENCE VAULT
 # ====================================================
 DB_URL = None
@@ -724,7 +745,7 @@ def render_brand_logo(size=30):
     )
 
 # ====================================================
-# 4. MASTER UNIVERSE & DATA ENGINES
+# 4. MASTER UNIVERSE & DATA ENGINES (DECLARED BEFORE TABS)
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1311,7 +1332,6 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     else:
         vwap = live_price
 
-    # Guard: Ensures Target > Entry on BUY, and Target < Entry on SELL
     if live_price >= h4 and bid_ask_ratio >= 1.1:
         action = "STRONG BUY (BREAKOUT)"
         entry = live_price
@@ -1331,7 +1351,6 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     elif live_price >= vwap:
         action = "BUY ON DIPS"
         entry = round(vwap, 2)
-        # Guaranteed target higher than entry regardless of gap-up magnitude
         candidate_target = max(h4, round(entry + (1.2 * atr), 2))
         if candidate_target <= entry:
             candidate_target = round(entry + (1.0 * atr), 2)
@@ -1343,7 +1362,6 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     else:
         action = "SELL ON RISE"
         entry = round(vwap, 2)
-        # Guaranteed target lower than entry regardless of gap-down magnitude
         candidate_target = min(l4, round(entry - (1.2 * atr), 2))
         if candidate_target >= entry:
             candidate_target = round(entry - (1.0 * atr), 2)
@@ -1359,13 +1377,13 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
         "forecast_today": forecast_today
     }
 
-# Global suggestion list
-all_suggestions = get_suggestion_list()
+# Safe lookup of current tab
+active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
 # TAB 1: UNIVERSAL STOCK ANALYZER (SINGLE UNIFIED SEARCH)
 # ====================================================
-if st.session_state.current_tab == "universal":
+if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
     with c_input:
         unified_query = st.selectbox(
@@ -1513,7 +1531,7 @@ if st.session_state.current_tab == "universal":
 # ====================================================
 # TAB 2: DEDICATED INTRADAY DESK (SINGLE UNIFIED SEARCH)
 # ====================================================
-elif st.session_state.current_tab == "intraday":
+elif active_tab == "intraday":
     col_iinput, col_ibtn = st.columns([5, 1])
     with col_iinput:
         selected_intra = st.selectbox(
@@ -1591,7 +1609,7 @@ elif st.session_state.current_tab == "intraday":
 # ====================================================
 # TAB 3: DEDICATED IPO & GMP RADAR
 # ====================================================
-elif st.session_state.current_tab == "ipo":
+elif active_tab == "ipo":
     col_itop1, col_itop2 = st.columns([4, 1.5])
     with col_itop1:
         st.markdown("### 🚀 Live Mainboard & SME IPO Radar")
