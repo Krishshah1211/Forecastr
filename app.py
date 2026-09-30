@@ -5,7 +5,6 @@ import sqlite3
 import hashlib
 import secrets
 from datetime import datetime, time as dtime
-
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -35,7 +34,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
-# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS UNCONDITIONALLY FIRST)
+# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS FIRST ALWAYS)
 # ====================================================
 DEFAULT_STATES = {
     "authenticated": False,
@@ -56,7 +55,7 @@ for k, v in DEFAULT_STATES.items():
         st.session_state[k] = v
 
 # ====================================================
-# 1. DATABASE & PERSISTENCE VAULT
+# 1. DATABASE & PERMANENT USER PERSISTENCE VAULT
 # ====================================================
 DB_URL = None
 try:
@@ -418,7 +417,368 @@ def save_user_data(username: str, data_dict: dict):
         save_to_backup_vault(u_clean, row[0], row[1], row[2], data_dict)
 
 # ====================================================
-# 2. ALL CALCULATION ENGINES (DECLARED AT TOP LEVEL)
+# 2. MARKET CALENDAR & COUNTDOWN ENGINE
+# ====================================================
+NSE_HOLIDAYS_2026 = {
+    "2026-01-26": "Republic Day",
+    "2026-03-03": "Holi",
+    "2026-03-26": "Shri Ram Navami",
+    "2026-03-31": "Shri Mahavir Jayanti",
+    "2026-04-03": "Good Friday",
+    "2026-04-14": "Dr. Ambedkar Jayanti",
+    "2026-05-01": "Maharashtra Day",
+    "2026-05-28": "Bakri Id (Eid ul-Adha)",
+    "2026-06-26": "Muharram",
+    "2026-09-14": "Ganesh Chaturthi",
+    "2026-10-02": "Mahatma Gandhi Jayanti",
+    "2026-10-20": "Dussehra",
+    "2026-11-10": "Diwali-Balipratipada",
+    "2026-11-24": "Guru Nanak Jayanti",
+    "2026-12-25": "Christmas"
+}
+
+def get_market_calendar_status():
+    ist = ZoneInfo('Asia/Kolkata')
+    now_ist = datetime.now(ist)
+    date_str = now_ist.strftime("%Y-%m-%d")
+    weekday = now_ist.weekday()
+    curr_time = now_ist.time()
+
+    t_pre_open = dtime(9, 0)
+    t_open = dtime(9, 15)
+    t_closing_soon = dtime(15, 0)
+    t_close = dtime(15, 30)
+    t_post_close = dtime(16, 0)
+
+    if weekday in (5, 6):
+        day_name = "Saturday" if weekday == 5 else "Sunday"
+        return {
+            "status": "CLOSED",
+            "badge": f"🔴 MARKET CLOSED ({day_name})",
+            "message": "Opens Monday at 09:15 AM IST",
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+
+    if date_str in NSE_HOLIDAYS_2026:
+        h_name = NSE_HOLIDAYS_2026[date_str]
+        return {
+            "status": "CLOSED",
+            "badge": f"🔴 MARKET CLOSED ({h_name})",
+            "message": "Exchange Holiday • Normal Trading Resumes Next Business Day",
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+
+    if curr_time < t_pre_open:
+        diff_sec = int((datetime.combine(now_ist.date(), t_open, ist) - now_ist).total_seconds())
+        mins, secs = divmod(diff_sec, 60)
+        return {
+            "status": "PRE_SESSION",
+            "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
+            "message": "Normal trading starts at 09:15 AM IST",
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_pre_open <= curr_time < t_open:
+        return {
+            "status": "PRE_OPEN",
+            "badge": "🟡 PRE-OPEN DISCOVERY (09:00 - 09:15)",
+            "message": "Order Matching in progress • Market opens at 09:15 AM",
+            "is_open": False,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_open <= curr_time < t_closing_soon:
+        return {
+            "status": "OPEN",
+            "badge": "🟢 MARKET OPEN (Normal Trading)",
+            "message": "Continuous Order Execution Active",
+            "is_open": True,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_closing_soon <= curr_time < t_close:
+        diff_sec = int((datetime.combine(now_ist.date(), t_close, ist) - now_ist).total_seconds())
+        mins, secs = divmod(diff_sec, 60)
+        return {
+            "status": "CLOSING_SOON",
+            "badge": f"⚠️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
+            "message": "Square off intraday positions before 03:30 PM",
+            "is_open": True,
+            "closing_soon": True,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_close <= curr_time < t_post_close:
+        return {
+            "status": "POST_CLOSE",
+            "badge": "🟡 POST-CLOSING SESSION (03:30 - 04:00)",
+            "message": "Closing price determination & AMO window",
+            "is_open": False,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    else:
+        return {
+            "status": "CLOSED",
+            "badge": "🔴 MARKET CLOSED",
+            "message": "Regular trading closed for the day • Opens 09:15 AM next business day",
+            "is_open": False,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+
+# ====================================================
+# 3. PAGE CONFIG & RESPONSIVE THEME
+# ====================================================
+st.set_page_config(
+    page_title="Forecastr | Institutional Market Terminal",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+    
+    :root {
+        --bg-main: #0B0E14;
+        --bg-card: #121620;
+        --border-subtle: rgba(255, 255, 255, 0.08);
+        --groww-green: #00D09C;
+        --kite-red: #DF514C;
+        --text-primary: #F1F5F9;
+        --text-secondary: #94A3B8;
+    }
+
+    .stApp {
+        background-color: var(--bg-main) !important;
+        color: var(--text-primary) !important;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    h1, h2, h3, h4, p, label, .stMarkdown {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }
+
+    code, .stCode, .mono { 
+        font-family: 'JetBrains Mono', monospace !important; 
+    }
+
+    [data-testid="stIcon"],
+    [data-testid="stExpanderToggleIcon"],
+    span[class*="material-symbols"],
+    span[class*="icon"],
+    button[aria-label*="password"],
+    button[aria-label*="Password"] {
+        font-family: inherit !important;
+    }
+
+    header[data-testid="stHeader"],
+    [data-testid="stHeaderActionElements"],
+    div[data-testid="StyledLinkIconContainer"],
+    a.anchor-link,
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {
+        display: none !important;
+        visibility: hidden !important;
+    }
+
+    div[data-testid="stVerticalBlock"] > div:empty { display: none !important; }
+    div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
+    div[data-testid="element-container"]:empty { display: none !important; }
+
+    .block-container {
+        padding: 0.8rem 1rem 2rem 1rem !important;
+        max-width: 100% !important;
+    }
+
+    .market-status-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #121620;
+        border: 1px solid var(--border-subtle);
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    div[data-testid="stMetric"] {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        padding: 10px 14px;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+    }
+    div[data-testid="stMetricValue"] {
+        color: #FFFFFF !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+    }
+
+    div.stButton > button {
+        background: var(--bg-card);
+        color: var(--text-primary);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 13px;
+        min-height: 42px;
+    }
+    div.stButton > button[kind="primary"] {
+        background: #00D09C !important;
+        color: #071510 !important;
+        border: none !important;
+        font-weight: 700 !important;
+    }
+
+    div.stButton > button p {
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1.25 !important;
+        text-align: center !important;
+        font-size: 11px !important;
+    }
+    div.stButton > button p strong {
+        display: block !important;
+        font-size: 13px !important;
+        color: #FFFFFF !important;
+    }
+
+    @keyframes glowGreenTick {
+        0% { border-color: #00D09C !important; background-color: rgba(0, 208, 156, 0.2) !important; }
+        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
+    }
+    @keyframes glowRedTick {
+        0% { border-color: #DF514C !important; background-color: rgba(223, 81, 76, 0.2) !important; }
+        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
+    }
+
+    div.glow-up > div.stButton > button {
+        animation: glowGreenTick 1.2s ease-out !important;
+    }
+    div.glow-down > div.stButton > button {
+        animation: glowRedTick 1.2s ease-out !important;
+    }
+
+    .pulse-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px 0;
+        margin: 10px 0;
+        background: #121620;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 208, 156, 0.2);
+    }
+    .stock-loader-svg { width: 100%; max-width: 260px; height: 65px; }
+    .chart-glow-path {
+        fill: none; stroke: #00D09C; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
+        stroke-dasharray: 600; stroke-dashoffset: 600;
+        animation: chartPulse 1.8s ease-in-out infinite;
+    }
+    .chart-glow-path-bg { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 2; }
+    @keyframes chartPulse {
+        0% { stroke-dashoffset: 600; opacity: 0.2; }
+        50% { stroke-dashoffset: 0; opacity: 1; }
+        100% { stroke-dashoffset: -600; opacity: 0.2; }
+    }
+    .loading-ticker-text {
+        color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+        margin-top: 8px; text-transform: uppercase;
+    }
+
+    .pattern-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(56, 189, 248, 0.12);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-right: 6px;
+        margin-bottom: 6px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ====================================================
+# 4. GLOBAL UI UTILITY FUNCTIONS
+# ====================================================
+def render_brand_logo(size=30):
+    svg_badge = (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 38 38" fill="none" style="vertical-align: middle;">'
+        f'<rect width="38" height="38" rx="10" fill="#0E1424" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>'
+        f'<line x1="11" y1="9" x2="11" y2="29" stroke="#00D09C" stroke-width="1.5" stroke-linecap="round"/>'
+        f'<rect x="9" y="14" width="4" height="10" rx="1" fill="#00D09C"/>'
+        f'<line x1="19" y1="12" x2="19" y2="28" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/>'
+        f'<rect x="17" y="17" width="4" height="7" rx="1" fill="#ef4444"/>'
+        f'<line x1="27" y1="6" x2="27" y2="31" stroke="#00D09C" stroke-width="1.5" stroke-linecap="round"/>'
+        f'<rect x="25" y="10" width="4" height="15" rx="1" fill="#00D09C"/>'
+        f'</svg>'
+    )
+    return (
+        f'<div style="display: inline-flex; align-items: center; gap: 8px;">'
+        f'{svg_badge}'
+        f'<span style="font-size: {size-4}px; font-weight: 800; color: #FFFFFF; letter-spacing: -0.6px;">'
+        f'Forecastr<span style="color: #00D09C;">.</span>'
+        f'</span>'
+        f'</div>'
+    )
+
+def show_stock_graph_loader(stock_name: str = "ORDER BOOK"):
+    loader_html = f"""
+    <div class="pulse-container">
+        <svg class="stock-loader-svg" viewBox="0 0 300 100">
+            <path class="chart-glow-path-bg" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
+            <path class="chart-glow-path" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
+        </svg>
+        <div class="loading-ticker-text">Scanning Exchange Order Books • {stock_name}</div>
+    </div>
+    """
+    return st.empty().markdown(loader_html, unsafe_allow_html=True)
+
+@st.dialog("⚖️️ Statutory Disclaimer & Risk Disclosure")
+def open_legal_dialog():
+    st.markdown("""
+    #### 1. Non-Advisory & Non-SEBI Registration
+    This software (**Forecastr**) is exclusively an educational and quantitative calculation tool. **It is NOT registered as an Investment Adviser or Research Analyst under SEBI Regulations.** 
+
+    #### 2. Deterministic Mathematical Sandbox
+    All price projections, target prices, volatility stops, and Camarilla coordinates are automated calculations based on historical trade ranges. They do **NOT** evaluate human psychology, breaking news, macroeconomic shifts, or black-swan occurrences.
+
+    #### 3. Complete Release of Liability
+    Trading in equities and derivatives involves severe financial risk. Users accept **100% individual responsibility** for their capital. The creators and developers accept **ZERO liability** for any financial gains or losses.
+    """)
+    if st.button("I Understand", type="primary", use_container_width=True):
+        st.rerun()
+
+def render_caution_bar():
+    st.markdown("---")
+    c1, c2 = st.columns([5, 1.2])
+    with c1:
+        st.markdown(
+            "<p style='color: #64748b; font-size: 11px; margin-top: 6px; line-height: 1.4;'>"
+            "⚠️ <b>Caution:</b> Projections and Camarilla levels are mathematical algorithmic calculations only. Equity investments are subject to market risks. Not financial advice."
+            "</p>",
+            unsafe_allow_html=True
+        )
+    with c2:
+        if st.button("Read More", key="btn_read_more_legal", use_container_width=True):
+            open_legal_dialog()
+
+# ====================================================
+# 5. ALL CALCULATION ENGINES (GLOBAL SCOPE)
 # ====================================================
 def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
     patterns = []
@@ -643,12 +1003,222 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     }
 
 # ====================================================
-# 3. GLOBAL AUTOCOMPLETE SUGGESTIONS
+# 6. UNIVERSAL MASTER UNIVERSE ENGINE & TICKER RESOLVER
+# ====================================================
+@st.cache_data(ttl=21600, show_spinner=False)
+def load_all_indian_stocks_universe() -> dict:
+    universe = {
+        "NSE": {"name": "National Stock Exchange of India (BSE: 542649)", "symbol": "NSE", "bse": "542649"},
+        "BSE": {"name": "BSE Limited", "symbol": "BSE", "bse": "542649"},
+        "VADILALIND": {"name": "Vadilal Industries Ltd", "symbol": "VADILALIND", "bse": "519156"},
+        "BOSCHLTD": {"name": "Bosch Limited", "symbol": "BOSCHLTD", "bse": "500530"},
+        "RELIANCE": {"name": "Reliance Industries Ltd", "symbol": "RELIANCE", "bse": "500325"},
+        "TCS": {"name": "Tata Consultancy Services Ltd", "symbol": "TCS", "bse": "532540"},
+        "HDFCBANK": {"name": "HDFC Bank Ltd", "symbol": "HDFCBANK", "bse": "500180"},
+        "BHARTIARTL": {"name": "Bharti Airtel Ltd", "symbol": "BHARTIARTL", "bse": "532454"},
+        "ICICIBANK": {"name": "ICICI Bank Ltd", "symbol": "ICICIBANK", "bse": "532174"},
+        "INFY": {"name": "Infosys Ltd", "symbol": "INFY", "bse": "500209"},
+        "SBIN": {"name": "State Bank of India", "symbol": "SBIN", "bse": "500112"},
+        "LICI": {"name": "Life Insurance Corporation of India", "symbol": "LICI", "bse": "543526"},
+        "HINDUNILVR": {"name": "Hindustan Unilever Ltd", "symbol": "HINDUNILVR", "bse": "500696"},
+        "ITC": {"name": "ITC Ltd", "symbol": "ITC", "bse": "500875"},
+        "LT": {"name": "Larsen & Toubro Ltd", "symbol": "LT", "bse": "500510"},
+        "HCLTECH": {"name": "HCL Technologies Ltd", "symbol": "HCLTECH", "bse": "532281"},
+        "BAJFINANCE": {"name": "Bajaj Finance Ltd", "symbol": "BAJFINANCE", "bse": "500034"},
+        "SUNPHARMA": {"name": "Sun Pharmaceutical Industries", "symbol": "SUNPHARMA", "bse": "524715"},
+        "M&M": {"name": "Mahindra & Mahindra Ltd", "symbol": "M&M", "bse": "500520"},
+        "MARUTI": {"name": "Maruti Suzuki India Ltd", "symbol": "MARUTI", "bse": "532500"},
+        "KOTAKBANK": {"name": "Kotak Mahindra Bank Ltd", "symbol": "KOTAKBANK", "bse": "500247"},
+        "TATAMOTORS": {"name": "Tata Motors Ltd", "symbol": "TATAMOTORS", "bse": "500570"},
+        "AXISBANK": {"name": "Axis Bank Ltd", "symbol": "AXISBANK", "bse": "532215"},
+        "NTPC": {"name": "NTPC Ltd", "symbol": "NTPC", "bse": "532555"},
+        "ONGC": {"name": "Oil & Natural Gas Corp Ltd", "symbol": "ONGC", "bse": "500312"},
+        "POWERGRID": {"name": "Power Grid Corp of India Ltd", "symbol": "POWERGRID", "bse": "532898"},
+        "TITAN": {"name": "Titan Company Ltd", "symbol": "TITAN", "bse": "500114"},
+        "ADANIENT": {"name": "Adani Enterprises Ltd", "symbol": "ADANIENT", "bse": "512599"},
+        "ADANIPORTS": {"name": "Adani Ports & SEZ Ltd", "symbol": "ADANIPORTS", "bse": "532921"},
+        "COALINDIA": {"name": "Coal India Ltd", "symbol": "COALINDIA", "bse": "533278"},
+        "BAJAJFINSV": {"name": "Bajaj Finserv Ltd", "symbol": "BAJAJFINSV", "bse": "532978"},
+        "WIPRO": {"name": "Wipro Ltd", "symbol": "WIPRO", "bse": "507685"},
+        "ASIANPAINT": {"name": "Asian Paints Ltd", "symbol": "ASIANPAINT", "bse": "500820"},
+        "ULTRACEMCO": {"name": "UltraTech Cement Ltd", "symbol": "ULTRACEMCO", "bse": "532538"},
+        "TRENT": {"name": "Trent Ltd", "symbol": "TRENT", "bse": "500251"},
+        "HAL": {"name": "Hindustan Aeronautics Ltd", "symbol": "HAL", "bse": "541154"},
+        "BEL": {"name": "Bharat Electronics Ltd", "symbol": "BEL", "bse": "500049"},
+        "HYUNDAI": {"name": "Hyundai Motor India Ltd", "symbol": "HYUNDAI", "bse": "544274"},
+        "SWIGGY": {"name": "Swiggy Ltd", "symbol": "SWIGGY", "bse": "544282"},
+        "NTPCGREEN": {"name": "NTPC Green Energy Ltd", "symbol": "NTPCGREEN", "bse": "544289"},
+        "ZOMATO": {"name": "Zomato Ltd", "symbol": "ZOMATO", "bse": "543320"},
+        "JIOFIN": {"name": "Jio Financial Services Ltd", "symbol": "JIOFIN", "bse": "543940"},
+        "SUZLON": {"name": "Suzlon Energy Ltd", "symbol": "SUZLON", "bse": "532667"},
+        "IREDA": {"name": "IREDA Ltd", "symbol": "IREDA", "bse": "544026"},
+        "IRFC": {"name": "Indian Railway Finance Corp", "symbol": "IRFC", "bse": "543257"},
+        "MAZDOCK": {"name": "Mazagon Dock Shipbuilders Ltd", "symbol": "MAZDOCK", "bse": "543237"},
+        "IDEA": {"name": "Vodafone Idea Ltd", "symbol": "IDEA", "bse": "532822"},
+        "YESBANK": {"name": "Yes Bank Ltd", "symbol": "YESBANK", "bse": "532648"},
+        "TATASTEEL": {"name": "Tata Steel Ltd", "symbol": "TATASTEEL", "bse": "500470"},
+        "JSWSTEEL": {"name": "JSW Steel Ltd", "symbol": "JSWSTEEL", "bse": "500228"},
+        "VEDL": {"name": "Vedanta Ltd", "symbol": "VEDL", "bse": "500295"},
+        "HINDALCO": {"name": "Hindalco Industries Ltd", "symbol": "HINDALCO", "bse": "500440"},
+        "BPCL": {"name": "Bharat Petroleum Corp Ltd", "symbol": "BPCL", "bse": "500547"},
+        "IOC": {"name": "Indian Oil Corporation Ltd", "symbol": "IOC", "bse": "530965"},
+        "DLF": {"name": "DLF Limited", "symbol": "DLF", "bse": "532868"},
+        "VBL": {"name": "Varun Beverages Ltd", "symbol": "VBL", "bse": "540180"},
+        "SIEMENS": {"name": "Siemens Ltd", "symbol": "SIEMENS", "bse": "500550"},
+        "ABB": {"name": "ABB India Ltd", "symbol": "ABB", "bse": "500002"}
+    }
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT symbol, company_name FROM stock_universe LIMIT 10000;")
+        rows = cur.fetchall()
+        for r in rows:
+            sym, name = r[0], r[1]
+            if sym not in universe:
+                universe[sym] = {"name": name if name else sym, "symbol": sym, "bse": ""}
+        conn.close()
+    except Exception:
+        pass
+
+    try:
+        url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=2.2)
+        if res.status_code == 200:
+            lines = res.text.split("\n")
+            for line in lines[1:4000]:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    sym = parts[0].strip().upper()
+                    name = parts[1].strip()
+                    if sym and len(sym) >= 2 and not sym.startswith("SYMBOL") and sym not in universe:
+                        universe[sym] = {"name": name, "symbol": sym, "bse": ""}
+    except Exception:
+        pass
+
+    try:
+        url_sme = "https://archives.nseindia.com/content/equities/sme_bands_complete.csv"
+        res_s = requests.get(url_sme, headers={"User-Agent": "Mozilla/5.0"}, timeout=2.0)
+        if res_s.status_code == 200:
+            lines = res_s.text.split("\n")
+            for line in lines[1:]:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    sym = parts[0].strip().upper()
+                    name = parts[1].strip() if len(parts) > 1 else sym
+                    if sym and len(sym) >= 2 and sym not in universe:
+                        universe[sym] = {"name": f"{name} (SME)", "symbol": sym, "bse": ""}
+    except Exception:
+        pass
+
+    return universe
+
+def get_suggestion_list() -> list:
+    stocks = load_all_indian_stocks_universe()
+    options = []
+    for sym, data in stocks.items():
+        name = data.get("name", sym)
+        options.append(f"{sym} — {name}")
+    options.sort()
+    return options
+
+def query_multisource_live_symbol(query_term: str) -> dict:
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    if query_term in ["NSE", "NSEINDIA", "NSE LTD"]:
+        return {"name": "National Stock Exchange of India (BSE: 542649)", "symbol": "NSE", "bse": "542649"}
+
+    # Source A: Screener.in Search
+    try:
+        url_s = f"https://www.screener.in/api/company/search/?q={query_term}"
+        rs = requests.get(url_s, headers=headers, timeout=2.5)
+        if rs.status_code == 200:
+            results = rs.json()
+            if results and len(results) > 0:
+                top = results[0]
+                c_name = top.get("name")
+                c_url = top.get("url", "")
+                parts = [p for p in c_url.split("/") if p]
+                if len(parts) >= 2:
+                    sym = parts[1].upper()
+                    return {"name": c_name, "symbol": sym, "bse": ""}
+    except Exception:
+        pass
+
+    # Source B: Yahoo Finance Search API
+    try:
+        url_y = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_term}&quotesCount=5&newsCount=0"
+        ry = requests.get(url_y, headers=headers, timeout=2.5)
+        if ry.status_code == 200:
+            data = ry.json()
+            for q in data.get("quotes", []):
+                sym = q.get("symbol", "")
+                if sym.endswith(".NS") or sym.endswith(".BO") or q.get("exchange") in ["NSI", "BSE", "NSE"]:
+                    clean_sym = sym.replace(".NS", "").replace(".BO", "")
+                    c_name = q.get("shortname") or q.get("longname") or clean_sym
+                    return {"name": c_name, "symbol": clean_sym, "bse": ""}
+    except Exception:
+        pass
+
+    return None
+
+def resolve_symbol_from_selection(query_str: str) -> dict:
+    if not query_str:
+        return {"name": "RELIANCE", "symbol": "RELIANCE", "bse": "500325"}
+    
+    clean = query_str.split("—")[0].strip().upper() if "—" in query_str else query_str.strip().upper()
+    clean = clean.replace(".NS", "").replace(".BO", "")
+    
+    name_map = {
+        "NSE": "NSE",
+        "NSEINDIA": "NSE",
+        "NSE LIMITED": "NSE",
+        "VADILAL": "VADILALIND",
+        "VADILAL INDUSTRIES": "VADILALIND",
+        "BOSCH": "BOSCHLTD",
+        "RELIANCE INDUSTRIES": "RELIANCE",
+        "TATA MOTORS": "TATAMOTORS",
+        "HDFC": "HDFCBANK",
+        "STATE BANK OF INDIA": "SBIN",
+        "INFOSYS": "INFY"
+    }
+    if clean in name_map:
+        clean = name_map[clean]
+
+    stocks = load_all_indian_stocks_universe()
+    if clean in stocks:
+        return stocks[clean]
+    
+    for sym, val in stocks.items():
+        if clean == val.get("name", "").upper() or clean in val.get("name", "").upper():
+            return val
+    
+    discovered = query_multisource_live_symbol(clean)
+    if discovered:
+        clean = discovered["symbol"]
+        stocks[clean] = discovered
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if IS_POSTGRES:
+            cur.execute("INSERT INTO stock_universe (symbol, company_name) VALUES (%s, %s) ON CONFLICT (symbol) DO NOTHING;", (clean, clean))
+        else:
+            cur.execute("INSERT OR IGNORE INTO stock_universe (symbol, company_name) VALUES (?, ?);", (clean, clean))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    
+    return {"name": clean, "symbol": clean, "bse": ""}
+
+# ====================================================
+# 7. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
 # ====================================================
 all_suggestions = get_suggestion_list()
 
 # ====================================================
-# 4. AUTHENTICATION & PROFILE GATING
+# 8. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -738,6 +1308,9 @@ if not st.session_state.authenticated:
     render_caution_bar()
     st.stop()
 
+# ====================================================
+# 9. USER PROFILE SETTINGS DIALOG
+# ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
     user = st.session_state.current_user
@@ -781,7 +1354,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 5. MAIN NAVIGATION HEADER & TOP BAR
+# 10. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
@@ -851,7 +1424,7 @@ st.markdown("---")
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER
+# TAB 1: UNIVERSAL STOCK ANALYZER (WITH CANDLESTICK DETECTION)
 # ====================================================
 if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
@@ -936,6 +1509,7 @@ if active_tab == "universal":
             if st.button("🔔 Alert Trade", use_container_width=True):
                 st.toast(f"Trade projection updated for {meta['name']} (₹{live_price})", icon="⚡")
 
+        # Candlestick Pattern Badges
         if quant_res.get("patterns"):
             st.write("**Detected Candlestick Signals:**")
             badges_html = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in quant_res['patterns']])
