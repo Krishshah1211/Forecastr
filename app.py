@@ -189,7 +189,7 @@ def init_db():
         salt = os.urandom(16).hex()
         pwd_hash = hashlib.sha256((DEV_PASS + salt).encode('utf-8')).hexdigest()
         mpin_h = hashlib.sha256((DEV_MPIN + salt).encode('utf-8')).hexdigest()
-        dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "VADILALIND", "HDFCBANK"], "searches": []})
+        dev_data = json.dumps({"role": "developer", "watchlist": ["RELIANCE", "VADILALIND", "BOSCHLTD"], "searches": []})
         insert_query = (
             "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
             if IS_POSTGRES else 
@@ -253,13 +253,13 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     if len(u_clean) < 3:
         return False, "Username must be at least 3 characters."
     if len(password.strip()) < 6:
-        return False, "New password must be at least 6 characters."
+        return False, "Password must be at least 6 characters."
     
     conn = get_db_connection()
     c = conn.cursor()
     pwd_hash, salt = hash_secret(password)
     mpin_hash, _ = hash_secret(str(mpin).strip(), salt)
-    default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "VADILALIND", "HDFCBANK"], "searches": []})
+    default_data = json.dumps({"role": "trader", "watchlist": ["RELIANCE", "VADILALIND", "BOSCHLTD"], "searches": []})
     try:
         query = (
             "INSERT INTO users (username, salt, password_hash, mpin_hash, user_data) VALUES (%s, %s, %s, %s, %s)" 
@@ -564,7 +564,6 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important; 
     }
 
-    /* Never override Streamlit's native icon glyphs */
     [data-testid="stIcon"],
     [data-testid="stExpanderToggleIcon"],
     span[class*="material-symbols"],
@@ -696,6 +695,21 @@ st.markdown("""
         color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
         margin-top: 8px; text-transform: uppercase;
     }
+
+    .pattern-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(56, 189, 248, 0.12);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-right: 6px;
+        margin-bottom: 6px;
+    }
 </style>
 
 <script>
@@ -725,7 +739,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ====================================================
-# 4. GLOBAL UI UTILITY FUNCTIONS (AVAILABLE ACROSS ALL SCOPES)
+# 4. GLOBAL UI UTILITY FUNCTIONS
 # ====================================================
 def render_brand_logo(size=30):
     svg_badge = (
@@ -790,7 +804,115 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 5. MASTER UNIVERSE & DATA ENGINES
+# 5. ADVANCED CANDLESTICK PATTERN RECOGNITION (HAMMER, DOJI, MARUBOZU)
+# ====================================================
+def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
+    """Detects high-conviction candlestick structures (Hammer, Inverted Hammer, Doji, Engulfing)."""
+    patterns = []
+    if len(df) < 3:
+        return patterns
+
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    o, h, l, c = last['Open'], last['High'], last['Low'], last['Close']
+    po, ph, pl, pc = prev['Open'], prev['High'], prev['Low'], prev['Close']
+
+    body = abs(c - o)
+    rng = h - l if (h - l) > 0 else 0.001
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - l
+
+    # 1. Hammer Pattern (Bullish Reversal: Long lower shadow >= 2x body, tiny upper shadow)
+    if (lower_wick >= 2 * body) and (upper_wick <= 0.25 * body) and (body / rng >= 0.1):
+        patterns.append({
+            "name": "🔨 Hammer (Bullish Reversal)",
+            "bias": "BULLISH",
+            "weight": 20,
+            "desc": "Buyers aggressively bought up intraday lows; rejection of lower prices."
+        })
+
+    # 2. Inverted Hammer (Bullish Reversal at lows)
+    elif (upper_wick >= 2 * body) and (lower_wick <= 0.25 * body) and (body / rng >= 0.1):
+        patterns.append({
+            "name": "⚡ Inverted Hammer",
+            "bias": "BULLISH",
+            "weight": 14,
+            "desc": "Bullish upward probe encountering temporary resistance but confirming buyer aggression."
+        })
+
+    # 3. Shooting Star (Bearish Topping Wick)
+    if (upper_wick >= 2.5 * body) and (c < o) and (lower_wick <= 0.2 * body):
+        patterns.append({
+            "name": "🌠 Shooting Star (Bearish Reversal)",
+            "bias": "BEARISH",
+            "weight": -22,
+            "desc": "Intraday rally completely rejected by sellers before close."
+        })
+
+    # 4. Bullish Engulfing
+    if (pc < po) and (c > o) and (c >= po) and (o <= pc):
+        patterns.append({
+            "name": "🟢 Bullish Engulfing",
+            "bias": "BULLISH",
+            "weight": 24,
+            "desc": "Current green candle completely engulfs previous bear range."
+        })
+
+    # 5. Bearish Engulfing
+    elif (pc > po) and (c < o) and (o >= pc) and (c <= po):
+        patterns.append({
+            "name": "🔴 Bearish Engulfing",
+            "bias": "BEARISH",
+            "weight": -24,
+            "desc": "Current red candle engulfs previous buyer advance."
+        })
+
+    # 6. Doji (Indecision)
+    if (body / rng) <= 0.08:
+        if lower_wick >= 2.5 * upper_wick:
+            patterns.append({
+                "name": "🦎 Dragonfly Doji",
+                "bias": "BULLISH",
+                "weight": 12,
+                "desc": "Indecision with strong buyer support defending bottom range."
+            })
+        elif upper_wick >= 2.5 * lower_wick:
+            patterns.append({
+                "name": "🪦 Gravestone Doji",
+                "bias": "BEARISH",
+                "weight": -15,
+                "desc": "Sellers dominated the session after initial breakout attempt."
+            })
+        else:
+            patterns.append({
+                "name": "⚖️ Neutral Doji",
+                "bias": "NEUTRAL",
+                "weight": 0,
+                "desc": "Equilibrium between buyer and seller order-flow."
+            })
+
+    # 7. Marubozu (Strong Momentum)
+    if (body / rng >= 0.88):
+        if c > o:
+            patterns.append({
+                "name": "🚀 Bullish Marubozu",
+                "bias": "BULLISH",
+                "weight": 18,
+                "desc": "Relentless institutional buying with zero pullbacks."
+            })
+        else:
+            patterns.append({
+                "name": "🩸 Bearish Marubozu",
+                "bias": "BEARISH",
+                "weight": -18,
+                "desc": "Heavy uninterrupted liquidation from open to close."
+            })
+
+    return patterns
+
+# ====================================================
+# 6. MASTER UNIVERSE ENGINE
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1245,6 +1367,9 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
         {"Category": "SME", "IPO Name": "Robokidz Eduventures SME", "Price Band": "₹106", "Live GMP": "₹55 (+51.9%)", "Est. Listing Price": "₹161", "Live Subscription": "51.89x", "Current Status": "🔴 Allotment Active"}
     ])
 
+# ====================================================
+# 7. ENHANCED PREDICTION ENGINE (CANDLESTICKS + VOLUME)
+# ====================================================
 def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fundamentals: dict, sentiment_score: int, live_volume: int, bid_ask_ratio: float) -> dict:
     high = df_daily['High']
     low = df_daily['Low']
@@ -1268,6 +1393,7 @@ def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fun
     rs = gain / loss.replace(0, 0.001)
     rsi = float((100 - (100 / (1 + rs))).dropna().iloc[-1]) if len(rs.dropna()) > 0 else 50.0
 
+    # 1. Base Score
     score = 50
 
     if current_price > ema_20 and ema_20 > ema_50:
@@ -1288,46 +1414,41 @@ def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fun
         else:
             score -= 15
 
-    if rsi < 35:
-        score -= 15
-    elif rsi > 65:
-        score += 15
+    # 2. Candlestick Structural Analysis
+    candle_patterns = analyze_candlestick_patterns(df_daily)
+    for p in candle_patterns:
+        score += p["weight"]
 
-    try:
-        roce = float(str(fundamentals.get("roce", "0")).replace("%", ""))
-        if roce > 15:
-            score += 10
-        elif roce < 5:
-            score -= 10
-    except Exception:
-        pass
-
-    score += int(sentiment_score * 0.35)
+    # 3. News Sentiment Integration
+    score += int(sentiment_score * 0.30)
 
     if score >= 75:
         stance = "STRONG BUY"
         target = round(current_price + (2.5 * atr), 2)
         stop = round(current_price - (1.4 * atr), 2)
         signal_type = "BULLISH"
-        thesis = f"Bullish breakout confirmed by volume surge ({vol_surge_mult}x avg) and strong buyer book dominance ({bid_ask_ratio}:1)."
+        pattern_txt = f" [{candle_patterns[0]['name']}]" if candle_patterns else ""
+        thesis = f"Bullish breakout confirmed by volume surge ({vol_surge_mult}x avg) and buyer book dominance ({bid_ask_ratio}:1).{pattern_txt}"
     elif score >= 55:
         stance = "ACCUMULATE / BUY"
         target = round(current_price + (1.8 * atr), 2)
         stop = round(current_price - (1.2 * atr), 2)
         signal_type = "BULLISH"
-        thesis = "Support levels holding with stable buying accumulation across recent daily candles."
+        pattern_txt = f" Supported by {candle_patterns[0]['name']}." if candle_patterns else ""
+        thesis = f"Support levels holding with stable buying accumulation across recent candles.{pattern_txt}"
     elif score <= 30:
         stance = "STRONG SELL"
         target = round(max(0, current_price - (2.2 * atr)), 2)
         stop = round(current_price + (1.3 * atr), 2)
         signal_type = "BEARISH"
-        thesis = f"CRITICAL BREAKDOWN: Sellers are dumping shares ({bid_ask_ratio}:1 buy/sell ratio) below key EMAs alongside negative news sentiment."
+        pattern_txt = f" Bearish pattern triggered: {candle_patterns[0]['name']}." if candle_patterns else ""
+        thesis = f"CRITICAL BREAKDOWN: Heavy liquidation ({bid_ask_ratio}:1 buy/sell ratio) below key EMAs.{pattern_txt}"
     else:
         stance = "AVOID / SELL"
         target = round(max(0, current_price - (1.4 * atr)), 2)
         stop = round(current_price + (1.0 * atr), 2)
         signal_type = "BEARISH"
-        thesis = "Distribution phase active. Liquidity order books reflect lack of institutional bidding support."
+        thesis = "Distribution phase active. Lack of institutional bidding support."
 
     confidence = max(55, min(95, abs(score)))
 
@@ -1343,88 +1464,17 @@ def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fun
         "ema_20": round(ema_20, 2),
         "ema_50": round(ema_50, 2),
         "vol_surge_mult": vol_surge_mult,
-        "bid_ask_ratio": bid_ask_ratio
+        "bid_ask_ratio": bid_ask_ratio,
+        "patterns": candle_patterns
     }
 
-def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame, live_price: float, bid_ask_ratio: float, sentiment_score: int) -> dict:
-    high = df_daily['High']
-    low = df_daily['Low']
-    close = df_daily['Close']
-
-    prev_h = float(high.iloc[-2]) if len(high) >= 2 else float(high.iloc[-1])
-    prev_l = float(low.iloc[-2]) if len(low) >= 2 else float(low.iloc[-1])
-    prev_c = float(close.iloc[-2]) if len(close) >= 2 else float(close.iloc[-1])
-    rng = prev_h - prev_l if prev_h > prev_l else live_price * 0.015
-
-    h4 = round(prev_c + (rng * 1.1 / 2.0), 2)
-    h3 = round(prev_c + (rng * 1.1 / 4.0), 2)
-    l3 = round(prev_c - (rng * 1.1 / 4.0), 2)
-    l4 = round(prev_c - (rng * 1.1 / 2.0), 2)
-
-    tr1 = high - low
-    tr2 = (high - close.shift()).abs()
-    tr3 = (low - close.shift()).abs()
-    atr = float(pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean().dropna().iloc[-1]) if len(high) >= 14 else float(live_price * 0.02)
-
-    if not df_5m.empty:
-        typ = (df_5m['High'] + df_5m['Low'] + df_5m['Close']) / 3
-        vol = df_5m['Volume'].replace(0, 1)
-        cum_vol = vol.cumsum()
-        vwap = round(float(((typ * vol).cumsum() / cum_vol).iloc[-1]), 2) if not cum_vol.empty else live_price
-    else:
-        vwap = live_price
-
-    # Guard: Ensures Target > Entry on BUY, and Target < Entry on SELL
-    if live_price >= h4 and bid_ask_ratio >= 1.1:
-        action = "STRONG BUY (BREAKOUT)"
-        entry = live_price
-        target = round(live_price + max(0.8 * atr, (h4 - live_price) + 1.2 * atr), 2)
-        stop = round(live_price - (0.5 * atr), 2)
-        rule = f"H4 Level breach (₹{h4}) backed by {bid_ask_ratio}:1 buyer volume dominance."
-        forecast_today = "BULLISH EXPANSION: Projected to trade higher towards upper Camarilla range."
-        conf = 90
-    elif live_price <= l4 or (live_price < vwap and bid_ask_ratio < 0.75):
-        action = "STRONG SELL (SHORT)"
-        entry = live_price
-        target = round(max(0, live_price - max(0.8 * atr, (live_price - l4) + 1.2 * atr)), 2)
-        stop = round(live_price + (0.5 * atr), 2)
-        rule = f"Trading below breakdown zone with heavy seller order book volume."
-        forecast_today = "BEARISH SINK: Intraday sellers dominating order flow. High probability of testing lower support."
-        conf = 88
-    elif live_price >= vwap:
-        action = "BUY ON DIPS"
-        entry = round(vwap, 2)
-        candidate_target = max(h4, round(entry + (1.2 * atr), 2))
-        if candidate_target <= entry:
-            candidate_target = round(entry + (1.0 * atr), 2)
-        target = candidate_target
-        stop = round(entry - (0.6 * atr), 2)
-        rule = f"Holding above session VWAP benchmark (₹{vwap})."
-        forecast_today = "RANGE-BOUND BULLISH: Look for dip-buying entries near VWAP support."
-        conf = 78
-    else:
-        action = "SELL ON RISE"
-        entry = round(vwap, 2)
-        candidate_target = min(l4, round(entry - (1.2 * atr), 2))
-        if candidate_target >= entry:
-            candidate_target = round(entry - (1.0 * atr), 2)
-        target = round(max(0, candidate_target), 2)
-        stop = round(entry + (0.6 * atr), 2)
-        rule = f"Rejected below VWAP (₹{vwap}). Supply pressure active."
-        forecast_today = "RANGE-BOUND BEARISH: Sellers capping bounce attempts. Avoid buying rallies."
-        conf = 76
-
-    return {
-        "h4": h4, "h3": h3, "l3": l3, "l4": l4, "vwap": vwap, "action": action,
-        "entry": entry, "target": target, "stop": stop, "rule": rule, "confidence": conf,
-        "forecast_today": forecast_today
-    }
-
-# Pre-compute autocomplete suggestions
+# ====================================================
+# 8. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
+# ====================================================
 all_suggestions = get_suggestion_list()
 
 # ====================================================
-# 6. AUTHENTICATION CHECK & LOGIN SCREEN
+# 9. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -1515,7 +1565,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 7. USER PROFILE SETTINGS DIALOG
+# 10. USER PROFILE SETTINGS DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -1561,7 +1611,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 8. MAIN NAVIGATION HEADER & TOP BAR
+# 11. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
@@ -1631,7 +1681,7 @@ st.markdown("---")
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER (SINGLE UNIFIED SEARCH)
+# TAB 1: UNIVERSAL STOCK ANALYZER (WITH CANDLESTICK DETECTION)
 # ====================================================
 if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
@@ -1640,7 +1690,7 @@ if active_tab == "universal":
             "Search Any Indian Stock (Type symbol or company name):",
             options=all_suggestions,
             index=None,
-            placeholder="Type any stock, SME or symbol (e.g. Bosch, Vadilal, Reliance)...",
+            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, Reliance)...",
             label_visibility="collapsed",
             key="universal_unified_search_bar"
         )
@@ -1716,6 +1766,12 @@ if active_tab == "universal":
             if st.button("🔔 Alert Trade", use_container_width=True):
                 st.toast(f"Trade projection updated for {meta['name']} (₹{live_price})", icon="⚡")
 
+        # Candlestick Pattern Badges
+        if quant_res.get("patterns"):
+            st.write("**Detected Candlestick Signals:**")
+            badges_html = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in quant_res['patterns']])
+            st.markdown(badges_html, unsafe_allow_html=True)
+
         m1, m2, m3, m4 = st.columns(4)
         pct_move = round(((quant_res['target'] - live_price) / live_price) * 100, 2)
         m1.metric("Live Market Price", f"₹{live_price}")
@@ -1773,13 +1829,16 @@ if active_tab == "universal":
             with st.container(border=True):
                 st.markdown("#### 📐 Algorithmic Synthesis & Market Stance")
                 st.write(quant_res['thesis'])
+                if quant_res.get("patterns"):
+                    for p in quant_res["patterns"]:
+                        st.write(f"• **Candle Structure:** `{p['name']}` — {p['desc']}")
                 st.write(f"• **Market Trend Status:** `{'BULLISH MOMENTUM' if quant_res['signal_type'] == 'BULLISH' else 'BEARISH DISTRIBUTION'}`")
                 st.write(f"• **Volume Surge Factor:** `{quant_res['vol_surge_mult']}x relative to 20-day mean`")
 
     render_caution_bar()
 
 # ====================================================
-# TAB 2: DEDICATED INTRADAY DESK (SINGLE UNIFIED SEARCH)
+# TAB 2: DEDICATED INTRADAY DESK (WITH INTRADAY CANDLESTICK SCAN)
 # ====================================================
 elif active_tab == "intraday":
     col_iinput, col_ibtn = st.columns([5, 1])
@@ -1807,12 +1866,16 @@ elif active_tab == "intraday":
         loader_slot.empty()
 
         imath = calculate_live_intraday_forecast(df_5m, df_daily, live_price, bid_ask, sent_score)
+        intra_patterns = analyze_candlestick_patterns(df_5m) if not df_5m.empty else []
 
         st.markdown(f"## ⚡ {meta['name']} <span style='font-size: 15px; color: #64748b;'>(NSE: {meta['symbol']})</span>", unsafe_allow_html=True)
 
         with st.container(border=True):
             st.markdown(f"### 🎯 Continuous Intraday Day Forecast • <span style='color: #00D09C;'>{imath['action']}</span>", unsafe_allow_html=True)
             st.write(f"**Algorithmic Outlook for Today:** {imath['forecast_today']}")
+            if intra_patterns:
+                p_badges = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in intra_patterns])
+                st.markdown(f"**5m Candle Signal:** {p_badges}", unsafe_allow_html=True)
             st.caption("Continuously recalculated using Live 5-minute ticks, order book flow, and breaking sentiment.")
 
         k1, k2, k3, k4 = st.columns(4)
