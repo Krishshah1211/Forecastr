@@ -243,7 +243,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ====================================================
-# 2. UI UTILITIES (GLOBAL SCOPE)
+# 2. UI UTILITY DEFINITIONS (GLOBAL SCOPE)
 # ====================================================
 def render_brand_logo(size=30):
     svg_badge = (
@@ -278,7 +278,7 @@ def show_stock_graph_loader(stock_name: str = "ORDER BOOK"):
     """
     return st.empty().markdown(loader_html, unsafe_allow_html=True)
 
-@st.dialog("⚖️️ Statutory Disclaimer & Risk Disclosure")
+@st.dialog("⚖️ Statutory Disclaimer & Risk Disclosure")
 def open_legal_dialog():
     st.markdown("""
     #### 1. Non-Advisory & Non-SEBI Registration
@@ -666,7 +666,116 @@ def save_user_data(username: str, data_dict: dict):
         save_to_backup_vault(u_clean, row[0], row[1], row[2], data_dict)
 
 # ====================================================
-# 4. CALCULATION ENGINES (DECLARED BEFORE CALLS)
+# 4. CALENDAR & COUNTDOWN ENGINE (GLOBAL SCOPE)
+# ====================================================
+NSE_HOLIDAYS_2026 = {
+    "2026-01-26": "Republic Day",
+    "2026-03-03": "Holi",
+    "2026-03-26": "Shri Ram Navami",
+    "2026-03-31": "Shri Mahavir Jayanti",
+    "2026-04-03": "Good Friday",
+    "2026-04-14": "Dr. Ambedkar Jayanti",
+    "2026-05-01": "Maharashtra Day",
+    "2026-05-28": "Bakri Id (Eid ul-Adha)",
+    "2026-06-26": "Muharram",
+    "2026-09-14": "Ganesh Chaturthi",
+    "2026-10-02": "Mahatma Gandhi Jayanti",
+    "2026-10-20": "Dussehra",
+    "2026-11-10": "Diwali-Balipratipada",
+    "2026-11-24": "Guru Nanak Jayanti",
+    "2026-12-25": "Christmas"
+}
+
+def get_market_calendar_status():
+    ist = ZoneInfo('Asia/Kolkata')
+    now_ist = datetime.now(ist)
+    date_str = now_ist.strftime("%Y-%m-%d")
+    weekday = now_ist.weekday()
+    curr_time = now_ist.time()
+
+    t_pre_open = dtime(9, 0)
+    t_open = dtime(9, 15)
+    t_closing_soon = dtime(15, 0)
+    t_close = dtime(15, 30)
+    t_post_close = dtime(16, 0)
+
+    if weekday in (5, 6):
+        day_name = "Saturday" if weekday == 5 else "Sunday"
+        return {
+            "status": "CLOSED",
+            "badge": f"🔴 MARKET CLOSED ({day_name})",
+            "message": "Opens Monday at 09:15 AM IST",
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+
+    if date_str in NSE_HOLIDAYS_2026:
+        h_name = NSE_HOLIDAYS_2026[date_str]
+        return {
+            "status": "CLOSED",
+            "badge": f"🔴 MARKET CLOSED ({h_name})",
+            "message": "Exchange Holiday • Normal Trading Resumes Next Business Day",
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+
+    if curr_time < t_pre_open:
+        diff_sec = int((datetime.combine(now_ist.date(), t_open, ist) - now_ist).total_seconds())
+        mins, secs = divmod(diff_sec, 60)
+        return {
+            "status": "PRE_SESSION",
+            "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
+            "message": "Normal trading starts at 09:15 AM IST",
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_pre_open <= curr_time < t_open:
+        return {
+            "status": "PRE_OPEN",
+            "badge": "🟡 PRE-OPEN DISCOVERY (09:00 - 09:15)",
+            "message": "Order Matching in progress • Market opens at 09:15 AM",
+            "is_open": False,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_open <= curr_time < t_closing_soon:
+        return {
+            "status": "OPEN",
+            "badge": "🟢 MARKET OPEN (Normal Trading)",
+            "message": "Continuous Order Execution Active",
+            "is_open": True,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_closing_soon <= curr_time < t_close:
+        diff_sec = int((datetime.combine(now_ist.date(), t_close, ist) - now_ist).total_seconds())
+        mins, secs = divmod(diff_sec, 60)
+        return {
+            "status": "CLOSING_SOON",
+            "badge": f"⚠️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
+            "message": "Square off intraday positions before 03:30 PM",
+            "is_open": True,
+            "closing_soon": True,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    elif t_close <= curr_time < t_post_close:
+        return {
+            "status": "POST_CLOSE",
+            "badge": "🟡 POST-CLOSING SESSION (03:30 - 04:00)",
+            "message": "Closing price determination & AMO window",
+            "is_open": False,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+    else:
+        return {
+            "status": "CLOSED",
+            "badge": "🔴 MARKET CLOSED",
+            "message": "Regular trading closed for the day • Opens 09:15 AM next business day",
+            "is_open": False,
+            "closing_soon": False,
+            "time_str": now_ist.strftime("%I:%M:%S %p IST")
+        }
+
+# ====================================================
+# 5. ALL CALCULATION ENGINES (GLOBAL SCOPE)
 # ====================================================
 def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
     patterns = []
@@ -684,19 +793,27 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
     upper_wick = h - max(o, c)
     lower_wick = min(o, c) - l
 
+    # Hammer
     if (lower_wick >= 2 * body) and (upper_wick <= 0.25 * body) and (body / rng >= 0.1):
         patterns.append({"name": "🔨 Hammer (Bullish Reversal)", "bias": "BULLISH", "weight": 20, "desc": "Buyers aggressively defended intraday lows."})
+
+    # Inverted Hammer
     elif (upper_wick >= 2 * body) and (lower_wick <= 0.25 * body) and (body / rng >= 0.1):
         patterns.append({"name": "⚡ Inverted Hammer", "bias": "BULLISH", "weight": 14, "desc": "Bullish probe rejecting lower boundaries."})
 
+    # Shooting Star
     if (upper_wick >= 2.5 * body) and (c < o) and (lower_wick <= 0.2 * body):
         patterns.append({"name": "🌠 Shooting Star (Bearish Reversal)", "bias": "BEARISH", "weight": -22, "desc": "Intraday rally rejected by supply."})
 
+    # Bullish Engulfing
     if (pc < po) and (c > o) and (c >= po) and (o <= pc):
         patterns.append({"name": "🟢 Bullish Engulfing", "bias": "BULLISH", "weight": 24, "desc": "Green candle completely engulfs prior bear session."})
+
+    # Bearish Engulfing
     elif (pc > po) and (c < o) and (o >= pc) and (c <= po):
         patterns.append({"name": "🔴 Bearish Engulfing", "bias": "BEARISH", "weight": -24, "desc": "Red candle engulfs prior buyer advance."})
 
+    # Doji
     if (body / rng) <= 0.08:
         if lower_wick >= 2.5 * upper_wick:
             patterns.append({"name": "🦎 Dragonfly Doji", "bias": "BULLISH", "weight": 12, "desc": "Strong buyer defense on lower range."})
@@ -705,6 +822,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
         else:
             patterns.append({"name": "⚖️ Neutral Doji", "bias": "NEUTRAL", "weight": 0, "desc": "Buyer/seller order-flow balance."})
 
+    # Marubozu
     if (body / rng >= 0.88):
         if c > o:
             patterns.append({"name": "🚀 Bullish Marubozu", "bias": "BULLISH", "weight": 18, "desc": "Institutional buying with zero pullbacks."})
@@ -882,7 +1000,7 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     }
 
 # ====================================================
-# 5. ALL UNIVERSAL LOADERS & RESOLVERS (GLOBAL SCOPE)
+# 6. UNIVERSAL UNIVERSE ENGINE & SEARCH RESOLVER
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1092,7 +1210,12 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
     return {"name": clean, "symbol": clean, "bse": ""}
 
 # ====================================================
-# 6. DATA INGESTION & MARKET FEEDS (GLOBAL SCOPE)
+# 7. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
+# ====================================================
+all_suggestions = get_suggestion_list()
+
+# ====================================================
+# 8. ALL DATA FEEDS & PIPELINES (GLOBAL SCOPE)
 # ====================================================
 @st.cache_data(ttl=25, show_spinner=False)
 def fetch_benchmark_snapshots(symbols: list) -> dict:
@@ -1393,12 +1516,7 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
     ])
 
 # ====================================================
-# 7. INITIALIZE SUGGESTIONS (CALL ONLY AFTER DEFINITION)
-# ====================================================
-all_suggestions = get_suggestion_list()
-
-# ====================================================
-# 8. AUTHENTICATION & LOGIN GATE
+# 9. AUTHENTICATION & LOGIN GATE
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -1489,7 +1607,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 8. USER PROFILE DIALOG
+# 10. USER PROFILE SETTINGS DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -1534,7 +1652,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 9. MAIN NAVIGATION HEADER & TOP BAR
+# 11. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
@@ -1692,6 +1810,7 @@ if active_tab == "universal":
             if st.button("🔔 Alert Trade", use_container_width=True):
                 st.toast(f"Trade projection updated for {meta['name']} (₹{live_price})", icon="⚡")
 
+        # Candlestick Pattern Badges
         if quant_res.get("patterns"):
             st.write("**Detected Candlestick Signals:**")
             badges_html = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in quant_res['patterns']])
