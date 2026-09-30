@@ -56,7 +56,7 @@ for k, v in DEFAULT_STATES.items():
         st.session_state[k] = v
 
 # ====================================================
-# 1. PAGE CONFIG & RESPONSIVE THEME
+# 1. PAGE CONFIG & RESPONSIVE DARK THEME
 # ====================================================
 st.set_page_config(
     page_title="Forecastr | Institutional Market Terminal",
@@ -728,8 +728,6 @@ def get_market_calendar_status():
             "status": "PRE_SESSION",
             "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
             "message": "Normal trading starts at 09:15 AM IST",
-            "is_open": False,
-            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_pre_open <= curr_time < t_open:
@@ -755,7 +753,7 @@ def get_market_calendar_status():
         mins, secs = divmod(diff_sec, 60)
         return {
             "status": "CLOSING_SOON",
-            "badge": f"⚠️️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
+            "badge": f"⚠ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
             "message": "Square off intraday positions before 03:30 PM",
             "is_open": True,
             "closing_soon": True,
@@ -1812,7 +1810,6 @@ if active_tab == "universal":
             if st.button("🔔 Alert Trade", use_container_width=True):
                 st.toast(f"Trade projection updated for {meta['name']} (₹{live_price})", icon="⚡")
 
-        # Candlestick Pattern Badges
         if quant_res.get("patterns"):
             st.write("**Detected Candlestick Signals:**")
             badges_html = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in quant_res['patterns']])
