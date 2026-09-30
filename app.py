@@ -1000,7 +1000,7 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     }
 
 # ====================================================
-# 6. UNIVERSAL UNIVERSE ENGINE & SEARCH RESOLVER
+# 6. UNIVERSAL UNIVERSE ENGINE & DYNAMIC RESOLVER
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1125,7 +1125,7 @@ def query_multisource_live_symbol(query_term: str) -> dict:
     if query_term in ["NSE", "NSEINDIA", "NSE LTD"]:
         return {"name": "National Stock Exchange of India (BSE: 542649)", "symbol": "NSE", "bse": "542649"}
 
-    # Screener Search
+    # Screener.in Search
     try:
         url_s = f"https://www.screener.in/api/company/search/?q={query_term}"
         rs = requests.get(url_s, headers=headers, timeout=2.5)
@@ -1722,7 +1722,7 @@ st.markdown("---")
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER (OPEN-UNIVERSE ENGINE)
+# TAB 1: UNIVERSAL STOCK ANALYZER (SINGLE UNIFIED SEARCH)
 # ====================================================
 if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
@@ -1730,19 +1730,14 @@ if active_tab == "universal":
         unified_query = st.text_input(
             "Search Any Indian Stock (Type symbol or company name):",
             value="",
-            placeholder="Type any ticker, SME, BSE code or name (e.g. NSE, 542649, BOSCHLTD, VADILALIND, SWIGGY)...",
+            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, NSE, Reliance, 542649)...",
             label_visibility="collapsed",
             key="universal_unified_search_bar"
         )
     with c_btn:
         submitted = st.button("🚀 Analyze", type="primary", use_container_width=True)
 
-    with st.expander("🔍 Or browse from master equity suggestions", expanded=False):
-        picked_drop = st.selectbox("Select from pre-loaded list:", options=[""] + all_suggestions, index=0)
-        if picked_drop:
-            unified_query = picked_drop
-
-    if (submitted or picked_drop) and unified_query:
+    if submitted and unified_query:
         st.session_state.universal_query = unified_query
         clean_code = unified_query.split("—")[0].strip().upper() if "—" in unified_query else unified_query.strip().upper()
         if "searches" not in st.session_state.user_profile:
@@ -1882,7 +1877,7 @@ if active_tab == "universal":
     render_caution_bar()
 
 # ====================================================
-# TAB 2: DEDICATED INTRADAY DESK
+# TAB 2: DEDICATED INTRADAY DESK (SINGLE UNIFIED SEARCH)
 # ====================================================
 elif active_tab == "intraday":
     col_iinput, col_ibtn = st.columns([5, 1])
@@ -1890,19 +1885,14 @@ elif active_tab == "intraday":
         selected_intra = st.text_input(
             "Search Intraday Stock:",
             value="",
-            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, NSE, Reliance)...",
+            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, NSE, Reliance, 542649)...",
             label_visibility="collapsed",
             key="intraday_unified_search_bar"
         )
     with col_ibtn:
         scan_submitted = st.button("⚡ Scan", type="primary", use_container_width=True)
 
-    with st.expander("🔍 Or browse from suggestions", expanded=False):
-        picked_intra_drop = st.selectbox("Select stock:", options=[""] + all_suggestions, index=0, key="intra_dropdown_pick")
-        if picked_intra_drop:
-            selected_intra = picked_intra_drop
-
-    if (scan_submitted or picked_intra_drop) and selected_intra:
+    if scan_submitted and selected_intra:
         st.session_state.intraday_query = selected_intra
 
     if st.session_state.intraday_query:
