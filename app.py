@@ -56,194 +56,7 @@ for k, v in DEFAULT_STATES.items():
         st.session_state[k] = v
 
 # ====================================================
-# 1. PAGE CONFIG & RESPONSIVE DARK THEME
-# ====================================================
-st.set_page_config(
-    page_title="Forecastr | Institutional Market Terminal",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
-    
-    :root {
-        --bg-main: #0B0E14;
-        --bg-card: #121620;
-        --border-subtle: rgba(255, 255, 255, 0.08);
-        --groww-green: #00D09C;
-        --kite-red: #DF514C;
-        --text-primary: #F1F5F9;
-        --text-secondary: #94A3B8;
-    }
-
-    .stApp {
-        background-color: var(--bg-main) !important;
-        color: var(--text-primary) !important;
-        font-family: 'Plus Jakarta Sans', sans-serif;
-    }
-
-    h1, h2, h3, h4, p, label, .stMarkdown {
-        font-family: 'Plus Jakarta Sans', sans-serif !important;
-    }
-
-    code, .stCode, .mono { 
-        font-family: 'JetBrains Mono', monospace !important; 
-    }
-
-    [data-testid="stIcon"],
-    [data-testid="stExpanderToggleIcon"],
-    span[class*="material-symbols"],
-    span[class*="icon"],
-    button[aria-label*="password"],
-    button[aria-label*="Password"] {
-        font-family: inherit !important;
-    }
-
-    header[data-testid="stHeader"],
-    [data-testid="stHeaderActionElements"],
-    div[data-testid="StyledLinkIconContainer"],
-    a.anchor-link,
-    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {
-        display: none !important;
-        visibility: hidden !important;
-    }
-
-    div[data-testid="stVerticalBlock"] > div:empty { display: none !important; }
-    div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
-    div[data-testid="element-container"]:empty { display: none !important; }
-
-    .block-container {
-        padding: 0.8rem 1rem 2rem 1rem !important;
-        max-width: 100% !important;
-    }
-
-    .market-status-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: #121620;
-        border: 1px solid var(--border-subtle);
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-size: 11px;
-        font-weight: 700;
-        margin-bottom: 8px;
-    }
-
-    div[data-testid="stMetric"] {
-        background: var(--bg-card);
-        border: 1px solid var(--border-subtle);
-        border-radius: 12px;
-        padding: 10px 14px;
-    }
-    div[data-testid="stMetricLabel"] {
-        color: var(--text-secondary) !important;
-        font-size: 0.75rem !important;
-        font-weight: 600 !important;
-        text-transform: uppercase;
-    }
-    div[data-testid="stMetricValue"] {
-        color: #FFFFFF !important;
-        font-family: 'JetBrains Mono', monospace !important;
-        font-size: 1.15rem !important;
-        font-weight: 700 !important;
-    }
-
-    div.stButton > button {
-        background: var(--bg-card);
-        color: var(--text-primary);
-        border: 1px solid var(--border-subtle);
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: 13px;
-        min-height: 42px;
-    }
-    div.stButton > button[kind="primary"] {
-        background: #00D09C !important;
-        color: #071510 !important;
-        border: none !important;
-        font-weight: 700 !important;
-    }
-
-    div.stButton > button p {
-        margin: 0 !important;
-        padding: 0 !important;
-        line-height: 1.25 !important;
-        text-align: center !important;
-        font-size: 11px !important;
-    }
-    div.stButton > button p strong {
-        display: block !important;
-        font-size: 13px !important;
-        color: #FFFFFF !important;
-    }
-
-    @keyframes glowGreenTick {
-        0% { border-color: #00D09C !important; background-color: rgba(0, 208, 156, 0.2) !important; }
-        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
-    }
-    @keyframes glowRedTick {
-        0% { border-color: #DF514C !important; background-color: rgba(223, 81, 76, 0.2) !important; }
-        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
-    }
-
-    div.glow-up > div.stButton > button {
-        animation: glowGreenTick 1.2s ease-out !important;
-    }
-    div.glow-down > div.stButton > button {
-        animation: glowRedTick 1.2s ease-out !important;
-    }
-
-    .pulse-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 20px 0;
-        margin: 10px 0;
-        background: #121620;
-        border-radius: 12px;
-        border: 1px solid rgba(0, 208, 156, 0.2);
-    }
-    .stock-loader-svg { width: 100%; max-width: 260px; height: 65px; }
-    .chart-glow-path {
-        fill: none; stroke: #00D09C; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
-        stroke-dasharray: 600; stroke-dashoffset: 600;
-        animation: chartPulse 1.8s ease-in-out infinite;
-    }
-    .chart-glow-path-bg { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 2; }
-    @keyframes chartPulse {
-        0% { stroke-dashoffset: 600; opacity: 0.2; }
-        50% { stroke-dashoffset: 0; opacity: 1; }
-        100% { stroke-dashoffset: -600; opacity: 0.2; }
-    }
-    .loading-ticker-text {
-        color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        margin-top: 8px; text-transform: uppercase;
-    }
-
-    .pattern-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(56, 189, 248, 0.12);
-        color: #38bdf8;
-        border: 1px solid rgba(56, 189, 248, 0.3);
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        font-weight: 700;
-        margin-right: 6px;
-        margin-bottom: 6px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ====================================================
-# 2. GLOBAL UI UTILITY FUNCTIONS
+# 1. UI UTILITY DEFINITIONS (GLOBAL SCOPE)
 # ====================================================
 def render_brand_logo(size=30):
     svg_badge = (
@@ -308,7 +121,7 @@ def render_caution_bar():
             open_legal_dialog()
 
 # ====================================================
-# 3. DATABASE & PERSISTENT SESSION VAULT
+# 2. DATABASE & SESSION PERSISTENCE (GLOBAL SCOPE)
 # ====================================================
 DB_URL = None
 try:
@@ -484,11 +297,7 @@ def verify_session_token(token: str) -> tuple:
 def clear_user_session(username: str):
     conn = get_db_connection()
     c = conn.cursor()
-    q = (
-        "UPDATE users SET session_token = NULL WHERE username = %s" 
-        if IS_POSTGRES else 
-        "UPDATE users SET session_token = NULL WHERE username = ?"
-    )
+    q = "UPDATE users SET session_token = NULL WHERE username = %s" if IS_POSTGRES else "UPDATE users SET session_token = NULL WHERE username = ?"
     c.execute(q, (username.strip().lower(),))
     conn.commit()
     conn.close()
@@ -670,7 +479,7 @@ def save_user_data(username: str, data_dict: dict):
         save_to_backup_vault(u_clean, row[0], row[1], row[2], data_dict)
 
 # ====================================================
-# 4. CALENDAR & COUNTDOWN ENGINE
+# 3. CALENDAR & COUNTDOWN ENGINE (GLOBAL SCOPE)
 # ====================================================
 NSE_HOLIDAYS_2026 = {
     "2026-01-26": "Republic Day",
@@ -753,7 +562,7 @@ def get_market_calendar_status():
         mins, secs = divmod(diff_sec, 60)
         return {
             "status": "CLOSING_SOON",
-            "badge": f"⚠ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
+            "badge": f"⚠️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
             "message": "Square off intraday positions before 03:30 PM",
             "is_open": True,
             "closing_soon": True,
@@ -779,232 +588,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 5. ALL CALCULATION ENGINES (GLOBAL SCOPE)
-# ====================================================
-def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
-    patterns = []
-    if len(df) < 3:
-        return patterns
-
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-
-    o, h, l, c = last['Open'], last['High'], last['Low'], last['Close']
-    po, ph, pl, pc = prev['Open'], prev['High'], prev['Low'], prev['Close']
-
-    body = abs(c - o)
-    rng = h - l if (h - l) > 0 else 0.001
-    upper_wick = h - max(o, c)
-    lower_wick = min(o, c) - l
-
-    # Hammer
-    if (lower_wick >= 2 * body) and (upper_wick <= 0.25 * body) and (body / rng >= 0.1):
-        patterns.append({"name": "🔨 Hammer (Bullish Reversal)", "bias": "BULLISH", "weight": 20, "desc": "Buyers aggressively defended intraday lows."})
-
-    # Inverted Hammer
-    elif (upper_wick >= 2 * body) and (lower_wick <= 0.25 * body) and (body / rng >= 0.1):
-        patterns.append({"name": "⚡ Inverted Hammer", "bias": "BULLISH", "weight": 14, "desc": "Bullish probe rejecting lower boundaries."})
-
-    # Shooting Star
-    if (upper_wick >= 2.5 * body) and (c < o) and (lower_wick <= 0.2 * body):
-        patterns.append({"name": "🌠 Shooting Star (Bearish Reversal)", "bias": "BEARISH", "weight": -22, "desc": "Intraday rally rejected by supply."})
-
-    # Bullish Engulfing
-    if (pc < po) and (c > o) and (c >= po) and (o <= pc):
-        patterns.append({"name": "🟢 Bullish Engulfing", "bias": "BULLISH", "weight": 24, "desc": "Green candle completely engulfs prior bear session."})
-
-    # Bearish Engulfing
-    elif (pc > po) and (c < o) and (o >= pc) and (c <= po):
-        patterns.append({"name": "🔴 Bearish Engulfing", "bias": "BEARISH", "weight": -24, "desc": "Red candle engulfs prior buyer advance."})
-
-    # Doji
-    if (body / rng) <= 0.08:
-        if lower_wick >= 2.5 * upper_wick:
-            patterns.append({"name": "🦎 Dragonfly Doji", "bias": "BULLISH", "weight": 12, "desc": "Strong buyer defense on lower range."})
-        elif upper_wick >= 2.5 * lower_wick:
-            patterns.append({"name": "🪦 Gravestone Doji", "bias": "BEARISH", "weight": -15, "desc": "Sellers dominated session after high probe."})
-        else:
-            patterns.append({"name": "⚖️ Neutral Doji", "bias": "NEUTRAL", "weight": 0, "desc": "Buyer/seller order-flow balance."})
-
-    # Marubozu
-    if (body / rng >= 0.88):
-        if c > o:
-            patterns.append({"name": "🚀 Bullish Marubozu", "bias": "BULLISH", "weight": 18, "desc": "Institutional buying with zero pullbacks."})
-        else:
-            patterns.append({"name": "🩸 Bearish Marubozu", "bias": "BEARISH", "weight": -18, "desc": "Heavy uninterrupted liquidation from open to close."})
-
-    return patterns
-
-def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fundamentals: dict, sentiment_score: int, live_volume: int, bid_ask_ratio: float) -> dict:
-    high = df_daily['High']
-    low = df_daily['Low']
-    close = df_daily['Close']
-    volume = df_daily['Volume']
-
-    tr1 = high - low
-    tr2 = (high - close.shift()).abs()
-    tr3 = (low - close.shift()).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = float(tr.rolling(14).mean().dropna().iloc[-1]) if len(tr.dropna()) >= 14 else float(current_price * 0.02)
-
-    ema_20 = float(close.ewm(span=20).mean().iloc[-1])
-    ema_50 = float(close.ewm(span=50).mean().iloc[-1]) if len(close) >= 50 else ema_20
-    avg_vol_20 = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else float(live_volume)
-    vol_surge_mult = round(live_volume / (avg_vol_20 + 1), 2)
-
-    delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss.replace(0, 0.001)
-    rsi = float((100 - (100 / (1 + rs))).dropna().iloc[-1]) if len(rs.dropna()) > 0 else 50.0
-
-    score = 50
-
-    if current_price > ema_20 and ema_20 > ema_50:
-        score += 20
-    elif current_price < ema_20 and ema_20 < ema_50:
-        score -= 25
-    elif current_price < ema_20:
-        score -= 10
-
-    if bid_ask_ratio > 1.3:
-        score += 15
-    elif bid_ask_ratio < 0.7:
-        score -= 20
-
-    if vol_surge_mult > 1.4:
-        if current_price >= ema_20:
-            score += 10
-        else:
-            score -= 15
-
-    candle_patterns = analyze_candlestick_patterns(df_daily)
-    for p in candle_patterns:
-        score += p["weight"]
-
-    score += int(sentiment_score * 0.30)
-
-    if score >= 75:
-        stance = "STRONG BUY"
-        target = round(current_price + (2.5 * atr), 2)
-        stop = round(current_price - (1.4 * atr), 2)
-        signal_type = "BULLISH"
-        pattern_txt = f" [{candle_patterns[0]['name']}]" if candle_patterns else ""
-        thesis = f"Bullish breakout confirmed by volume surge ({vol_surge_mult}x avg) and buyer dominance ({bid_ask_ratio}:1).{pattern_txt}"
-    elif score >= 55:
-        stance = "ACCUMULATE / BUY"
-        target = round(current_price + (1.8 * atr), 2)
-        stop = round(current_price - (1.2 * atr), 2)
-        signal_type = "BULLISH"
-        pattern_txt = f" Supported by {candle_patterns[0]['name']}." if candle_patterns else ""
-        thesis = f"Support levels holding with stable buying accumulation across recent candles.{pattern_txt}"
-    elif score <= 30:
-        stance = "STRONG SELL"
-        target = round(max(0, current_price - (2.2 * atr)), 2)
-        stop = round(current_price + (1.3 * atr), 2)
-        signal_type = "BEARISH"
-        pattern_txt = f" Bearish structure: {candle_patterns[0]['name']}." if candle_patterns else ""
-        thesis = f"CRITICAL BREAKDOWN: Heavy liquidation ({bid_ask_ratio}:1 buy/sell ratio) below key EMAs.{pattern_txt}"
-    else:
-        stance = "AVOID / SELL"
-        target = round(max(0, current_price - (1.4 * atr)), 2)
-        stop = round(current_price + (1.0 * atr), 2)
-        signal_type = "BEARISH"
-        thesis = "Distribution phase active. Lack of institutional bidding support."
-
-    confidence = max(55, min(95, abs(score)))
-
-    return {
-        "target": target,
-        "stop": stop,
-        "stance": stance,
-        "signal_type": signal_type,
-        "confidence": confidence,
-        "thesis": thesis,
-        "atr": atr,
-        "rsi": round(rsi, 1),
-        "ema_20": round(ema_20, 2),
-        "ema_50": round(ema_50, 2),
-        "vol_surge_mult": vol_surge_mult,
-        "bid_ask_ratio": bid_ask_ratio,
-        "patterns": candle_patterns
-    }
-
-def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame, live_price: float, bid_ask_ratio: float, sentiment_score: int) -> dict:
-    high = df_daily['High']
-    low = df_daily['Low']
-    close = df_daily['Close']
-
-    prev_h = float(high.iloc[-2]) if len(high) >= 2 else float(high.iloc[-1])
-    prev_l = float(low.iloc[-2]) if len(low) >= 2 else float(low.iloc[-1])
-    prev_c = float(close.iloc[-2]) if len(close) >= 2 else float(close.iloc[-1])
-    rng = prev_h - prev_l if prev_h > prev_l else live_price * 0.015
-
-    h4 = round(prev_c + (rng * 1.1 / 2.0), 2)
-    h3 = round(prev_c + (rng * 1.1 / 4.0), 2)
-    l3 = round(prev_c - (rng * 1.1 / 4.0), 2)
-    l4 = round(prev_c - (rng * 1.1 / 2.0), 2)
-
-    tr1 = high - low
-    tr2 = (high - close.shift()).abs()
-    tr3 = (low - close.shift()).abs()
-    atr = float(pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean().dropna().iloc[-1]) if len(high) >= 14 else float(live_price * 0.02)
-
-    if not df_5m.empty:
-        typ = (df_5m['High'] + df_5m['Low'] + df_5m['Close']) / 3
-        vol = df_5m['Volume'].replace(0, 1)
-        cum_vol = vol.cumsum()
-        vwap = round(float(((typ * vol).cumsum() / cum_vol).iloc[-1]), 2) if not cum_vol.empty else live_price
-    else:
-        vwap = live_price
-
-    if live_price >= h4 and bid_ask_ratio >= 1.1:
-        action = "STRONG BUY (BREAKOUT)"
-        entry = live_price
-        target = round(live_price + max(0.8 * atr, (h4 - live_price) + 1.2 * atr), 2)
-        stop = round(live_price - (0.5 * atr), 2)
-        rule = f"H4 Level breach (₹{h4}) backed by {bid_ask_ratio}:1 buyer volume dominance."
-        forecast_today = "BULLISH EXPANSION: Projected to trade higher towards upper Camarilla range."
-        conf = 90
-    elif live_price <= l4 or (live_price < vwap and bid_ask_ratio < 0.75):
-        action = "STRONG SELL (SHORT)"
-        entry = live_price
-        target = round(max(0, live_price - max(0.8 * atr, (live_price - l4) + 1.2 * atr)), 2)
-        stop = round(live_price + (0.5 * atr), 2)
-        rule = f"Trading below breakdown zone with heavy seller order book volume."
-        forecast_today = "BEARISH SINK: Intraday sellers dominating order flow. High probability of testing lower support."
-        conf = 88
-    elif live_price >= vwap:
-        action = "BUY ON DIPS"
-        entry = round(vwap, 2)
-        candidate_target = max(h4, round(entry + (1.2 * atr), 2))
-        if candidate_target <= entry:
-            candidate_target = round(entry + (1.0 * atr), 2)
-        target = candidate_target
-        stop = round(entry - (0.6 * atr), 2)
-        rule = f"Holding above session VWAP benchmark (₹{vwap})."
-        forecast_today = "RANGE-BOUND BULLISH: Look for dip-buying entries near VWAP support."
-        conf = 78
-    else:
-        action = "SELL ON RISE"
-        entry = round(vwap, 2)
-        candidate_target = min(l4, round(entry - (1.2 * atr), 2))
-        if candidate_target >= entry:
-            candidate_target = round(entry - (1.0 * atr), 2)
-        target = round(max(0, candidate_target), 2)
-        stop = round(entry + (0.6 * atr), 2)
-        rule = f"Rejected below VWAP (₹{vwap}). Supply pressure active."
-        forecast_today = "RANGE-BOUND BEARISH: Sellers capping bounce attempts. Avoid buying rallies."
-        conf = 76
-
-    return {
-        "h4": h4, "h3": h3, "l3": l3, "l4": l4, "vwap": vwap, "action": action,
-        "entry": entry, "target": target, "stop": stop, "rule": rule, "confidence": conf,
-        "forecast_today": forecast_today
-    }
-
-# ====================================================
-# 6. UNIVERSAL MASTER UNIVERSE ENGINE & TICKER RESOLVER
+# 4. MASTER UNIVERSE ENGINE & DYNAMIC RESOLVER
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1129,7 +713,7 @@ def query_multisource_live_symbol(query_term: str) -> dict:
     if query_term in ["NSE", "NSEINDIA", "NSE LTD"]:
         return {"name": "National Stock Exchange of India (BSE: 542649)", "symbol": "NSE", "bse": "542649"}
 
-    # Source A: Screener.in Search
+    # Screener Search
     try:
         url_s = f"https://www.screener.in/api/company/search/?q={query_term}"
         rs = requests.get(url_s, headers=headers, timeout=2.5)
@@ -1146,7 +730,7 @@ def query_multisource_live_symbol(query_term: str) -> dict:
     except Exception:
         pass
 
-    # Source B: Yahoo Finance Search API
+    # Yahoo Search
     try:
         url_y = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_term}&quotesCount=5&newsCount=0"
         ry = requests.get(url_y, headers=headers, timeout=2.5)
@@ -1214,12 +798,7 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
     return {"name": clean, "symbol": clean, "bse": ""}
 
 # ====================================================
-# 7. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
-# ====================================================
-all_suggestions = get_suggestion_list()
-
-# ====================================================
-# 8. ALL DATA FEEDS & PIPELINES (GLOBAL SCOPE)
+# 5. DATA INGESTION & MARKET FEEDS (GLOBAL SCOPE)
 # ====================================================
 @st.cache_data(ttl=25, show_spinner=False)
 def fetch_benchmark_snapshots(symbols: list) -> dict:
@@ -1520,7 +1099,12 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
     ])
 
 # ====================================================
-# 9. AUTHENTICATION & LOGIN GATE
+# 6. INSTANTIATE AUTOCOMPLETE DATA (AFTER DEFINITIONS)
+# ====================================================
+all_suggestions = get_suggestion_list()
+
+# ====================================================
+# 7. AUTHENTICATION & LOGIN GATE
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -1611,7 +1195,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 10. USER PROFILE SETTINGS DIALOG
+# 8. USER PROFILE SETTINGS DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -1656,7 +1240,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 11. MAIN NAVIGATION HEADER & TOP BAR
+# 9. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
@@ -1726,23 +1310,28 @@ st.markdown("---")
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER (WITH CANDLESTICK DETECTION)
+# TAB 1: UNIVERSAL STOCK ANALYZER (OPEN-UNIVERSE ENGINE)
 # ====================================================
 if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
     with c_input:
-        unified_query = st.selectbox(
+        unified_query = st.text_input(
             "Search Any Indian Stock (Type symbol or company name):",
-            options=all_suggestions,
-            index=None,
-            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, NSE, Reliance)...",
+            value="",
+            placeholder="Type any ticker, SME, BSE code or name (e.g. NSE, 542649, BOSCHLTD, VADILALIND, SWIGGY)...",
             label_visibility="collapsed",
             key="universal_unified_search_bar"
         )
     with c_btn:
         submitted = st.button("🚀 Analyze", type="primary", use_container_width=True)
 
-    if submitted and unified_query:
+    # Search Autocomplete helper
+    with st.expander("🔍 Or browse from master equity suggestions", expanded=False):
+        picked_drop = st.selectbox("Select from pre-loaded list:", options=[""] + all_suggestions, index=0)
+        if picked_drop:
+            unified_query = picked_drop
+
+    if (submitted or picked_drop) and unified_query:
         st.session_state.universal_query = unified_query
         clean_code = unified_query.split("—")[0].strip().upper() if "—" in unified_query else unified_query.strip().upper()
         if "searches" not in st.session_state.user_profile:
@@ -1810,6 +1399,7 @@ if active_tab == "universal":
             if st.button("🔔 Alert Trade", use_container_width=True):
                 st.toast(f"Trade projection updated for {meta['name']} (₹{live_price})", icon="⚡")
 
+        # Candlestick Pattern Badges
         if quant_res.get("patterns"):
             st.write("**Detected Candlestick Signals:**")
             badges_html = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in quant_res['patterns']])
@@ -1886,18 +1476,22 @@ if active_tab == "universal":
 elif active_tab == "intraday":
     col_iinput, col_ibtn = st.columns([5, 1])
     with col_iinput:
-        selected_intra = st.selectbox(
+        selected_intra = st.text_input(
             "Search Intraday Stock:",
-            options=all_suggestions,
-            index=None,
-            placeholder="Type symbol or company name (e.g. Bosch, Vadilal, NSE, Reliance)...",
+            value="",
+            placeholder="Type any stock, SME or scrip code (e.g. Bosch, Vadilal, NSE, Reliance)...",
             label_visibility="collapsed",
             key="intraday_unified_search_bar"
         )
     with col_ibtn:
         scan_submitted = st.button("⚡ Scan", type="primary", use_container_width=True)
 
-    if scan_submitted and selected_intra:
+    with st.expander("🔍 Or browse from suggestions", expanded=False):
+        picked_intra_drop = st.selectbox("Select stock:", options=[""] + all_suggestions, index=0, key="intra_dropdown_pick")
+        if picked_intra_drop:
+            selected_intra = picked_intra_drop
+
+    if (scan_submitted or picked_intra_drop) and selected_intra:
         st.session_state.intraday_query = selected_intra
 
     if st.session_state.intraday_query:
