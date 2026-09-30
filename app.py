@@ -232,7 +232,7 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     if len(u_clean) < 3:
         return False, "Username must be at least 3 characters."
     if len(password.strip()) < 6:
-        return False, "Password must be at least 6 characters."
+        return False, "New password must be at least 6 characters."
     
     conn = get_db_connection()
     c = conn.cursor()
@@ -543,7 +543,6 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important; 
     }
 
-    /* Never override Streamlit's native icon glyphs */
     [data-testid="stIcon"],
     [data-testid="stExpanderToggleIcon"],
     span[class*="material-symbols"],
@@ -725,12 +724,13 @@ def render_brand_logo(size=30):
     )
 
 # ====================================================
-# 4. MASTER UNIVERSE & DATA ENGINES (DECLARED BEFORE TABS)
+# 4. MASTER UNIVERSE & DATA ENGINES
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
     universe = {
         "VADILALIND": {"name": "Vadilal Industries Ltd", "symbol": "VADILALIND", "bse": "519156"},
+        "BOSCHLTD": {"name": "Bosch Limited", "symbol": "BOSCHLTD", "bse": "500530"},
         "RELIANCE": {"name": "Reliance Industries Ltd", "symbol": "RELIANCE", "bse": "500325"},
         "TCS": {"name": "Tata Consultancy Services Ltd", "symbol": "TCS", "bse": "532540"},
         "HDFCBANK": {"name": "HDFC Bank Ltd", "symbol": "HDFCBANK", "bse": "500180"},
@@ -852,6 +852,7 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
     name_map = {
         "VADILAL": "VADILALIND",
         "VADILAL INDUSTRIES": "VADILALIND",
+        "BOSCH": "BOSCHLTD",
         "RELIANCE INDUSTRIES": "RELIANCE",
         "TATA MOTORS": "TATAMOTORS",
         "HDFC": "HDFCBANK",
@@ -921,6 +922,8 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
     sym_aliases = [symbol]
     if "VADILAL" in symbol and symbol != "VADILALIND":
         sym_aliases.append("VADILALIND")
+    if "BOSCH" in symbol and symbol != "BOSCHLTD":
+        sym_aliases.append("BOSCHLTD")
 
     for s in sym_aliases:
         for exch in [f"{s}:NSE", f"{s}:BOM", f"{bse_code}:BOM" if bse_code else ""]:
@@ -996,7 +999,7 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
         live_volume = int(df_5m['Volume'].sum())
 
     if not live_price:
-        fallback_prices = {"VADILALIND": 7565.0, "HYUNDAI": 1820.0, "SWIGGY": 460.00, "NTPCGREEN": 125.00}
+        fallback_prices = {"VADILALIND": 7565.0, "BOSCHLTD": 47400.0, "HYUNDAI": 1820.0, "SWIGGY": 460.00, "NTPCGREEN": 125.00}
         live_price = fallback_prices.get(symbol, 1226.0)
 
     if df_daily.empty:
@@ -1277,6 +1280,9 @@ def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fun
         "bid_ask_ratio": bid_ask_ratio
     }
 
+# ====================================================
+# LIVE INTRADAY PREDICTION ENGINE (LOGIC-GUARDED)
+# ====================================================
 def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame, live_price: float, bid_ask_ratio: float, sentiment_score: int) -> dict:
     high = df_daily['High']
     low = df_daily['Low']
@@ -1305,10 +1311,11 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     else:
         vwap = live_price
 
+    # Guard: Ensures Target > Entry on BUY, and Target < Entry on SELL
     if live_price >= h4 and bid_ask_ratio >= 1.1:
         action = "STRONG BUY (BREAKOUT)"
         entry = live_price
-        target = round(live_price + (1.2 * atr), 2)
+        target = round(live_price + max(0.8 * atr, (h4 - live_price) + 1.2 * atr), 2)
         stop = round(live_price - (0.5 * atr), 2)
         rule = f"H4 Level breach (₹{h4}) backed by {bid_ask_ratio}:1 buyer volume dominance."
         forecast_today = "BULLISH EXPANSION: Projected to trade higher towards upper Camarilla range."
@@ -1316,24 +1323,32 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     elif live_price <= l4 or (live_price < vwap and bid_ask_ratio < 0.75):
         action = "STRONG SELL (SHORT)"
         entry = live_price
-        target = round(max(0, live_price - (1.2 * atr)), 2)
+        target = round(max(0, live_price - max(0.8 * atr, (live_price - l4) + 1.2 * atr)), 2)
         stop = round(live_price + (0.5 * atr), 2)
         rule = f"Trading below breakdown zone with heavy seller order book volume."
         forecast_today = "BEARISH SINK: Intraday sellers dominating order flow. High probability of testing lower support."
         conf = 88
     elif live_price >= vwap:
         action = "BUY ON DIPS"
-        entry = vwap
-        target = round(h3, 2)
-        stop = round(vwap - (0.5 * atr), 2)
+        entry = round(vwap, 2)
+        # Guaranteed target higher than entry regardless of gap-up magnitude
+        candidate_target = max(h4, round(entry + (1.2 * atr), 2))
+        if candidate_target <= entry:
+            candidate_target = round(entry + (1.0 * atr), 2)
+        target = candidate_target
+        stop = round(entry - (0.6 * atr), 2)
         rule = f"Holding above session VWAP benchmark (₹{vwap})."
         forecast_today = "RANGE-BOUND BULLISH: Look for dip-buying entries near VWAP support."
         conf = 78
     else:
         action = "SELL ON RISE"
-        entry = vwap
-        target = round(l3, 2)
-        stop = round(vwap + (0.5 * atr), 2)
+        entry = round(vwap, 2)
+        # Guaranteed target lower than entry regardless of gap-down magnitude
+        candidate_target = min(l4, round(entry - (1.2 * atr), 2))
+        if candidate_target >= entry:
+            candidate_target = round(entry - (1.0 * atr), 2)
+        target = round(max(0, candidate_target), 2)
+        stop = round(entry + (0.6 * atr), 2)
         rule = f"Rejected below VWAP (₹{vwap}). Supply pressure active."
         forecast_today = "RANGE-BOUND BEARISH: Sellers capping bounce attempts. Avoid buying rallies."
         conf = 76
@@ -1344,284 +1359,7 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
         "forecast_today": forecast_today
     }
 
-# ====================================================
-# 5. AUTHENTICATION & SESSION STATE MANAGEMENT
-# ====================================================
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "current_user" not in st.session_state:
-    st.session_state.current_user = ""
-if "user_profile" not in st.session_state:
-    st.session_state.user_profile = {}
-if "current_tab" not in st.session_state:
-    st.session_state.current_tab = "universal"
-if "universal_query" not in st.session_state:
-    st.session_state.universal_query = "RELIANCE"
-if "intraday_query" not in st.session_state:
-    st.session_state.intraday_query = "RELIANCE"
-if "ipo_filter" not in st.session_state:
-    st.session_state.ipo_filter = ""
-if "ipo_category_filter" not in st.session_state:
-    st.session_state.ipo_category_filter = "All"
-if "auto_refresh_enabled" not in st.session_state:
-    st.session_state.auto_refresh_enabled = True
-if "auto_refresh_sec" not in st.session_state:
-    st.session_state.auto_refresh_sec = 30
-if "prev_benchmark_prices" not in st.session_state:
-    st.session_state.prev_benchmark_prices = {}
-
-if st.query_params.get("logout") == "true":
-    del st.query_params["logout"]
-    if "auth_token" in st.query_params:
-        del st.query_params["auth_token"]
-    st.session_state.authenticated = False
-    st.session_state.current_user = ""
-    st.session_state.user_profile = {}
-
-if not st.session_state.authenticated:
-    url_token = st.query_params.get("auth_token", None)
-    if url_token:
-        valid_sess, sess_user, sess_profile = verify_session_token(url_token)
-        if valid_sess:
-            st.session_state.authenticated = True
-            st.session_state.current_user = sess_user
-            st.session_state.user_profile = sess_profile
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-}
-
-def show_stock_graph_loader(stock_name: str = "ORDER BOOK"):
-    loader_html = f"""
-    <div class="pulse-container">
-        <svg class="stock-loader-svg" viewBox="0 0 300 100">
-            <path class="chart-glow-path-bg" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
-            <path class="chart-glow-path" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
-        </svg>
-        <div class="loading-ticker-text">Scanning Exchange Order Books • {stock_name}</div>
-    </div>
-    """
-    return st.empty().markdown(loader_html, unsafe_allow_html=True)
-
-@st.dialog("⚖️ Statutory Disclaimer & Risk Disclosure")
-def open_legal_dialog():
-    st.markdown("""
-    #### 1. Non-Advisory & Non-SEBI Registration
-    This software (**Forecastr**) is exclusively an educational and quantitative calculation tool. **It is NOT registered as an Investment Adviser or Research Analyst under SEBI Regulations.** 
-
-    #### 2. Deterministic Mathematical Sandbox
-    All price projections, target prices, volatility stops, and Camarilla coordinates are automated calculations based on historical trade ranges. They do **NOT** evaluate human psychology, breaking news, macroeconomic shifts, or black-swan occurrences.
-
-    #### 3. Complete Release of Liability
-    Trading in equities and derivatives involves severe financial risk. Users accept **100% individual responsibility** for their capital. The creators and developers accept **ZERO liability** for any financial gains or losses.
-    """)
-    if st.button("I Understand", type="primary", use_container_width=True):
-        st.rerun()
-
-def render_caution_bar():
-    st.markdown("---")
-    c1, c2 = st.columns([5, 1.2])
-    with c1:
-        st.markdown(
-            "<p style='color: #64748b; font-size: 11px; margin-top: 6px; line-height: 1.4;'>"
-            "⚠️ <b>Caution:</b> Projections and Camarilla levels are mathematical algorithmic calculations only. Equity investments are subject to market risks. Not financial advice."
-            "</p>",
-            unsafe_allow_html=True
-        )
-    with c2:
-        if st.button("Read More", key="btn_read_more_legal", use_container_width=True):
-            open_legal_dialog()
-
-# ====================================================
-# 6. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
-# ====================================================
-if not st.session_state.authenticated:
-    st.write("")
-    st.markdown(
-        f"<div style='text-align:center; margin-bottom:16px;'>"
-        f"{render_brand_logo(size=36)}"
-        f"<p style='color:#64748b; font-size:12px; margin-top:4px;'>Quantitative Equities & Market Terminal</p>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
-
-    _, center_col, _ = st.columns([1, 1.8, 1])
-    with center_col:
-        tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
-        
-        with tab_mpin:
-            with st.form("clean_mpin_form"):
-                m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
-                m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
-                st.write("")
-                submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
-                if submit_mpin:
-                    ok, u_data, msg = verify_user_mpin(m_user, m_pin)
-                    if ok:
-                        token = create_user_session(m_user)
-                        st.query_params["auth_token"] = token
-                        st.session_state.authenticated = True
-                        st.session_state.current_user = m_user.strip().lower()
-                        st.session_state.user_profile = u_data
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {msg}")
-
-        with tab_pwd:
-            with st.form("clean_login_form"):
-                l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
-                l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
-                st.write("")
-                submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
-                if submit_login:
-                    ok, u_data, msg = verify_user_password(l_user, l_pass)
-                    if ok:
-                        token = create_user_session(l_user)
-                        st.query_params["auth_token"] = token
-                        st.session_state.authenticated = True
-                        st.session_state.current_user = l_user.strip().lower()
-                        st.session_state.user_profile = u_data
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {msg}")
-
-        with tab_register:
-            with st.form("clean_register_form"):
-                r_user = st.text_input("Username", placeholder="Choose username")
-                r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
-                r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
-                r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
-                st.write("")
-                submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
-                if submit_reg:
-                    if r_pass != r_conf:
-                        st.error("❌ Passwords do not match.")
-                    else:
-                        ok, msg = register_user(r_user, r_pass, r_mpin)
-                        if ok:
-                            st.success(f"✅ {msg}")
-                        else:
-                            st.error(f"❌ {msg}")
-
-    render_caution_bar()
-    st.stop()
-
-# ====================================================
-# 7. USER PROFILE SETTINGS DIALOG
-# ====================================================
-@st.dialog("👤 Account Profile & Settings")
-def open_profile_dropdown():
-    user = st.session_state.current_user
-    
-    st.markdown(
-        f"<div style='background:#121620; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.08); margin-bottom:12px;'>"
-        f"<span style='color:#94a3b8; font-size:11px; text-transform:uppercase;'>Active Account</span>"
-        f"<h3 style='margin:4px 0 0 0; color:#00D09C;'>{user.upper()}</h3>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
-
-    with st.expander("Update 4-Digit Fast MPIN", expanded=True):
-        new_pin = st.text_input("New 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 1234", key="diag_mpin_input")
-        if st.button("Save New MPIN", key="btn_save_mpin_diag", use_container_width=True):
-            ok, msg = update_user_mpin(user, new_pin)
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
-
-    with st.expander("Change Master Password", expanded=False):
-        old_p = st.text_input("Current Password", type="password", key="diag_old_pass")
-        new_p = st.text_input("New Password", type="password", key="diag_new_pass")
-        if st.button("Update Password", key="btn_save_pwd_diag", use_container_width=True):
-            ok, msg = update_user_password(user, old_p, new_pass=new_p)
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
-
-    st.markdown("---")
-    if st.button("Logout from Terminal", type="primary", use_container_width=True):
-        if user:
-            clear_user_session(user)
-        if "auth_token" in st.query_params:
-            del st.query_params["auth_token"]
-        st.query_params["logout"] = "true"
-        st.session_state.authenticated = False
-        st.session_state.current_user = ""
-        st.session_state.user_profile = {}
-        st.rerun()
-
-# ====================================================
-# 8. MAIN NAVIGATION HEADER & TOP BAR
-# ====================================================
-col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
-
-with col_logo:
-    st.markdown(render_brand_logo(size=30), unsafe_allow_html=True)
-
-with col_nav:
-    n1, n2, n3 = st.columns(3)
-    with n1:
-        if st.button("🔍 Stock", use_container_width=True):
-            st.session_state.current_tab = "universal"
-            st.rerun()
-    with n2:
-        if st.button("⚡ Intraday", use_container_width=True):
-            st.session_state.current_tab = "intraday"
-            st.rerun()
-    with n3:
-        if st.button("🚀 IPO/GMP", use_container_width=True):
-            st.session_state.current_tab = "ipo"
-            st.rerun()
-
-with col_user:
-    if st.button(f"👤 {st.session_state.current_user.upper()}", key="btn_user_avatar_menu", use_container_width=True):
-        open_profile_dropdown()
-
-mkt = get_market_calendar_status()
-
-stream_bar_left, stream_bar_right = st.columns([5.5, 4.5])
-with stream_bar_left:
-    st.markdown(
-        f"<div class='market-status-bar'>"
-        f"<span>{mkt['badge']}</span>"
-        f"<span style='color: #475569;'>|</span>"
-        f"<span style='color: #94a3b8;'>{mkt['time_str']}</span>"
-        f"</div>",
-        unsafe_allow_html=True
-    )
-
-refresh_options = {
-    10: "10 sec", 30: "30 sec", 60: "1 min", 120: "2 min",
-    300: "5 min", 600: "10 min", 900: "15 min"
-}
-
-with stream_bar_right:
-    c_tog, c_sec = st.columns([1.8, 1.2])
-    with c_tog:
-        st.session_state.auto_refresh_enabled = st.toggle("Auto-Refresh", value=st.session_state.auto_refresh_enabled)
-    with c_sec:
-        if st.session_state.auto_refresh_enabled:
-            selected_sec = st.selectbox(
-                "Cycle Interval",
-                options=list(refresh_options.keys()),
-                format_func=lambda x: refresh_options[x],
-                index=list(refresh_options.keys()).index(st.session_state.auto_refresh_sec) if st.session_state.auto_refresh_sec in refresh_options else 1,
-                label_visibility="collapsed"
-            )
-            st.session_state.auto_refresh_sec = selected_sec
-
-if st.session_state.auto_refresh_enabled:
-    if HAS_AUTOREFRESH:
-        st_autorefresh(interval=st.session_state.auto_refresh_sec * 1000, key="market_live_stream_clock")
-    else:
-        st.markdown(f'<meta http-equiv="refresh" content="{st.session_state.auto_refresh_sec}">', unsafe_allow_html=True)
-
-st.markdown("---")
-
-# Global Autocomplete List (Ensures all_suggestions is defined before tabs)
+# Global suggestion list
 all_suggestions = get_suggestion_list()
 
 # ====================================================
@@ -1634,7 +1372,7 @@ if st.session_state.current_tab == "universal":
             "Search Any Indian Stock (Type symbol or company name):",
             options=all_suggestions,
             index=None,
-            placeholder="Type any stock, SME or symbol (e.g. Vadilal, Reliance, Hyundai, Suzlon)...",
+            placeholder="Type any stock, SME or symbol (e.g. Bosch, Vadilal, Reliance)...",
             label_visibility="collapsed",
             key="universal_unified_search_bar"
         )
@@ -1782,7 +1520,7 @@ elif st.session_state.current_tab == "intraday":
             "Search Intraday Stock:",
             options=all_suggestions,
             index=None,
-            placeholder="Type symbol or company name (e.g. Vadilal, Reliance, Tata Motors)...",
+            placeholder="Type symbol or company name (e.g. Bosch, Vadilal, Reliance)...",
             label_visibility="collapsed",
             key="intraday_unified_search_bar"
         )
@@ -1813,7 +1551,7 @@ elif st.session_state.current_tab == "intraday":
         k1.metric("Live Market Price", f"₹{live_price}")
         k2.metric("Intraday Signal", imath["action"], delta=f"{imath['confidence']}% Confidence", delta_color="normal" if "BUY" in imath["action"] else "inverse")
         k3.metric("Entry Level", f"₹{imath['entry']}", delta=f"Stop: ₹{imath['stop']}", delta_color="inverse")
-        k4.metric("Take Profit Target", f"₹{imath['target']}", delta="R:R 1:2.4")
+        k4.metric("Take Profit Target", f"₹{imath['target']}", delta="R:R 1:2.0")
 
         st.markdown("---")
 
