@@ -56,7 +56,259 @@ for k, v in DEFAULT_STATES.items():
         st.session_state[k] = v
 
 # ====================================================
-# 1. DATABASE & PERMANENT USER PERSISTENCE VAULT
+# 1. PAGE CONFIG & RESPONSIVE THEME
+# ====================================================
+st.set_page_config(
+    page_title="Forecastr | Institutional Market Terminal",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+    
+    :root {
+        --bg-main: #0B0E14;
+        --bg-card: #121620;
+        --border-subtle: rgba(255, 255, 255, 0.08);
+        --groww-green: #00D09C;
+        --kite-red: #DF514C;
+        --text-primary: #F1F5F9;
+        --text-secondary: #94A3B8;
+    }
+
+    .stApp {
+        background-color: var(--bg-main) !important;
+        color: var(--text-primary) !important;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    h1, h2, h3, h4, p, label, .stMarkdown {
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }
+
+    code, .stCode, .mono { 
+        font-family: 'JetBrains Mono', monospace !important; 
+    }
+
+    [data-testid="stIcon"],
+    [data-testid="stExpanderToggleIcon"],
+    span[class*="material-symbols"],
+    span[class*="icon"],
+    button[aria-label*="password"],
+    button[aria-label*="Password"] {
+        font-family: inherit !important;
+    }
+
+    header[data-testid="stHeader"],
+    [data-testid="stHeaderActionElements"],
+    div[data-testid="StyledLinkIconContainer"],
+    a.anchor-link,
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {
+        display: none !important;
+        visibility: hidden !important;
+    }
+
+    div[data-testid="stVerticalBlock"] > div:empty { display: none !important; }
+    div[data-testid="stMarkdownContainer"]:empty { display: none !important; }
+    div[data-testid="element-container"]:empty { display: none !important; }
+
+    .block-container {
+        padding: 0.8rem 1rem 2rem 1rem !important;
+        max-width: 100% !important;
+    }
+
+    .market-status-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #121620;
+        border: 1px solid var(--border-subtle);
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    div[data-testid="stMetric"] {
+        background: var(--bg-card);
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        padding: 10px 14px;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: var(--text-secondary) !important;
+        font-size: 0.75rem !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+    }
+    div[data-testid="stMetricValue"] {
+        color: #FFFFFF !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+    }
+
+    div.stButton > button {
+        background: var(--bg-card);
+        color: var(--text-primary);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 13px;
+        min-height: 42px;
+    }
+    div.stButton > button[kind="primary"] {
+        background: #00D09C !important;
+        color: #071510 !important;
+        border: none !important;
+        font-weight: 700 !important;
+    }
+
+    div.stButton > button p {
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1.25 !important;
+        text-align: center !important;
+        font-size: 11px !important;
+    }
+    div.stButton > button p strong {
+        display: block !important;
+        font-size: 13px !important;
+        color: #FFFFFF !important;
+    }
+
+    @keyframes glowGreenTick {
+        0% { border-color: #00D09C !important; background-color: rgba(0, 208, 156, 0.2) !important; }
+        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
+    }
+    @keyframes glowRedTick {
+        0% { border-color: #DF514C !important; background-color: rgba(223, 81, 76, 0.2) !important; }
+        100% { border-color: var(--border-subtle) !important; background-color: var(--bg-card) !important; }
+    }
+
+    div.glow-up > div.stButton > button {
+        animation: glowGreenTick 1.2s ease-out !important;
+    }
+    div.glow-down > div.stButton > button {
+        animation: glowRedTick 1.2s ease-out !important;
+    }
+
+    .pulse-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px 0;
+        margin: 10px 0;
+        background: #121620;
+        border-radius: 12px;
+        border: 1px solid rgba(0, 208, 156, 0.2);
+    }
+    .stock-loader-svg { width: 100%; max-width: 260px; height: 65px; }
+    .chart-glow-path {
+        fill: none; stroke: #00D09C; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round;
+        stroke-dasharray: 600; stroke-dashoffset: 600;
+        animation: chartPulse 1.8s ease-in-out infinite;
+    }
+    .chart-glow-path-bg { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 2; }
+    @keyframes chartPulse {
+        0% { stroke-dashoffset: 600; opacity: 0.2; }
+        50% { stroke-dashoffset: 0; opacity: 1; }
+        100% { stroke-dashoffset: -600; opacity: 0.2; }
+    }
+    .loading-ticker-text {
+        color: #94a3b8; font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+        margin-top: 8px; text-transform: uppercase;
+    }
+
+    .pattern-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(56, 189, 248, 0.12);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-right: 6px;
+        margin-bottom: 6px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ====================================================
+# 2. GLOBAL UI UTILITY FUNCTIONS
+# ====================================================
+def render_brand_logo(size=30):
+    svg_badge = (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 38 38" fill="none" style="vertical-align: middle;">'
+        f'<rect width="38" height="38" rx="10" fill="#0E1424" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>'
+        f'<line x1="11" y1="9" x2="11" y2="29" stroke="#00D09C" stroke-width="1.5" stroke-linecap="round"/>'
+        f'<rect x="9" y="14" width="4" height="10" rx="1" fill="#00D09C"/>'
+        f'<line x1="19" y1="12" x2="19" y2="28" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/>'
+        f'<rect x="17" y="17" width="4" height="7" rx="1" fill="#ef4444"/>'
+        f'<line x1="27" y1="6" x2="27" y2="31" stroke="#00D09C" stroke-width="1.5" stroke-linecap="round"/>'
+        f'<rect x="25" y="10" width="4" height="15" rx="1" fill="#00D09C"/>'
+        f'</svg>'
+    )
+    return (
+        f'<div style="display: inline-flex; align-items: center; gap: 8px;">'
+        f'{svg_badge}'
+        f'<span style="font-size: {size-4}px; font-weight: 800; color: #FFFFFF; letter-spacing: -0.6px;">'
+        f'Forecastr<span style="color: #00D09C;">.</span>'
+        f'</span>'
+        f'</div>'
+    )
+
+def show_stock_graph_loader(stock_name: str = "ORDER BOOK"):
+    loader_html = f"""
+    <div class="pulse-container">
+        <svg class="stock-loader-svg" viewBox="0 0 300 100">
+            <path class="chart-glow-path-bg" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
+            <path class="chart-glow-path" d="M 0,60 L 40,60 L 60,35 L 85,75 L 115,20 L 145,65 L 175,45 L 205,80 L 235,15 L 265,50 L 300,50" />
+        </svg>
+        <div class="loading-ticker-text">Scanning Exchange Order Books • {stock_name}</div>
+    </div>
+    """
+    return st.empty().markdown(loader_html, unsafe_allow_html=True)
+
+@st.dialog("⚖️ Statutory Disclaimer & Risk Disclosure")
+def open_legal_dialog():
+    st.markdown("""
+    #### 1. Non-Advisory & Non-SEBI Registration
+    This software (**Forecastr**) is exclusively an educational and quantitative calculation tool. **It is NOT registered as an Investment Adviser or Research Analyst under SEBI Regulations.** 
+
+    #### 2. Deterministic Mathematical Sandbox
+    All price projections, target prices, volatility stops, and Camarilla coordinates are automated calculations based on historical trade ranges. They do **NOT** evaluate human psychology, breaking news, macroeconomic shifts, or black-swan occurrences.
+
+    #### 3. Complete Release of Liability
+    Trading in equities and derivatives involves severe financial risk. Users accept **100% individual responsibility** for their capital. The creators and developers accept **ZERO liability** for any financial gains or losses.
+    """)
+    if st.button("I Understand", type="primary", use_container_width=True):
+        st.rerun()
+
+def render_caution_bar():
+    st.markdown("---")
+    c1, c2 = st.columns([5, 1.2])
+    with c1:
+        st.markdown(
+            "<p style='color: #64748b; font-size: 11px; margin-top: 6px; line-height: 1.4;'>"
+            "⚠️ <b>Caution:</b> Projections and Camarilla levels are mathematical algorithmic calculations only. Equity investments are subject to market risks. Not financial advice."
+            "</p>",
+            unsafe_allow_html=True
+        )
+    with c2:
+        if st.button("Read More", key="btn_read_more_legal", use_container_width=True):
+            open_legal_dialog()
+
+# ====================================================
+# 3. DATABASE & PERSISTENT SESSION VAULT
 # ====================================================
 DB_URL = None
 try:
@@ -418,7 +670,7 @@ def save_user_data(username: str, data_dict: dict):
         save_to_backup_vault(u_clean, row[0], row[1], row[2], data_dict)
 
 # ====================================================
-# 2. MARKET CALENDAR & COUNTDOWN ENGINE
+# 4. CALENDAR & COUNTDOWN ENGINE
 # ====================================================
 NSE_HOLIDAYS_2026 = {
     "2026-01-26": "Republic Day",
@@ -476,6 +728,8 @@ def get_market_calendar_status():
             "status": "PRE_SESSION",
             "badge": f"⚪ PRE-MARKET (Opens in {mins:02d}m {secs:02d}s)",
             "message": "Normal trading starts at 09:15 AM IST",
+            "is_open": False,
+            "closing_soon": False,
             "time_str": now_ist.strftime("%I:%M:%S %p IST")
         }
     elif t_pre_open <= curr_time < t_open:
@@ -501,7 +755,7 @@ def get_market_calendar_status():
         mins, secs = divmod(diff_sec, 60)
         return {
             "status": "CLOSING_SOON",
-            "badge": f"⚠️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
+            "badge": f"⚠️️ MARKET CLOSING IN {mins:02d}m {secs:02d}s",
             "message": "Square off intraday positions before 03:30 PM",
             "is_open": True,
             "closing_soon": True,
@@ -527,7 +781,7 @@ def get_market_calendar_status():
         }
 
 # ====================================================
-# 3. ADVANCED CANDLESTICK PATTERN RECOGNITION
+# 5. ALL CALCULATION ENGINES (GLOBAL SCOPE)
 # ====================================================
 def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
     patterns = []
@@ -583,9 +837,6 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
 
     return patterns
 
-# ====================================================
-# 4. QUANT ENGINE & INTRADAY PREDICTORS
-# ====================================================
 def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fundamentals: dict, sentiment_score: int, live_volume: int, bid_ask_ratio: float) -> dict:
     high = df_daily['High']
     low = df_daily['Low']
@@ -755,7 +1006,7 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     }
 
 # ====================================================
-# 5. ALL UNIVERSAL LOADERS & RESOLVERS (GLOBAL SCOPE)
+# 6. UNIVERSAL MASTER UNIVERSE ENGINE & TICKER RESOLVER
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -965,7 +1216,12 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
     return {"name": clean, "symbol": clean, "bse": ""}
 
 # ====================================================
-# 6. ALL DATA FEEDS & PIPELINES (GLOBAL SCOPE)
+# 7. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
+# ====================================================
+all_suggestions = get_suggestion_list()
+
+# ====================================================
+# 8. ALL DATA FEEDS & PIPELINES (GLOBAL SCOPE)
 # ====================================================
 @st.cache_data(ttl=25, show_spinner=False)
 def fetch_benchmark_snapshots(symbols: list) -> dict:
@@ -1266,12 +1522,7 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
     ])
 
 # ====================================================
-# 7. INITIALIZE SUGGESTIONS (CALL ONLY AFTER DEFINITION)
-# ====================================================
-all_suggestions = get_suggestion_list()
-
-# ====================================================
-# 8. AUTHENTICATION & LOGIN GATE
+# 9. AUTHENTICATION & LOGIN GATE
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -1362,7 +1613,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 9. USER PROFILE DIALOG
+# 10. USER PROFILE SETTINGS DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -1407,7 +1658,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 10. MAIN NAVIGATION HEADER & TOP BAR
+# 11. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
@@ -1477,7 +1728,7 @@ st.markdown("---")
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
-# TAB 1: UNIVERSAL STOCK ANALYZER
+# TAB 1: UNIVERSAL STOCK ANALYZER (WITH CANDLESTICK DETECTION)
 # ====================================================
 if active_tab == "universal":
     c_input, c_btn = st.columns([5, 1])
@@ -1502,7 +1753,6 @@ if active_tab == "universal":
             st.session_state.user_profile["searches"].append(clean_code)
             save_user_data(st.session_state.current_user, st.session_state.user_profile)
 
-    # Watchlist Snapshots
     bench_keys = ["RELIANCE", "VADILALIND", "HDFCBANK", "TATAMOTORS", "HYUNDAI", "INFY"]
     bench_data = fetch_benchmark_snapshots(bench_keys)
 
@@ -1562,6 +1812,7 @@ if active_tab == "universal":
             if st.button("🔔 Alert Trade", use_container_width=True):
                 st.toast(f"Trade projection updated for {meta['name']} (₹{live_price})", icon="⚡")
 
+        # Candlestick Pattern Badges
         if quant_res.get("patterns"):
             st.write("**Detected Candlestick Signals:**")
             badges_html = "".join([f"<span class='pattern-badge'>{p['name']}</span>" for p in quant_res['patterns']])
