@@ -253,7 +253,7 @@ def register_user(username: str, password: str, mpin: str = "1234") -> tuple:
     if len(u_clean) < 3:
         return False, "Username must be at least 3 characters."
     if len(password.strip()) < 6:
-        return False, "Password must be at least 6 characters."
+        return False, "New password must be at least 6 characters."
     
     conn = get_db_connection()
     c = conn.cursor()
@@ -564,6 +564,7 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important; 
     }
 
+    /* Never override Streamlit's native icon glyphs */
     [data-testid="stIcon"],
     [data-testid="stExpanderToggleIcon"],
     span[class*="material-symbols"],
@@ -807,7 +808,6 @@ def render_caution_bar():
 # 5. ADVANCED CANDLESTICK PATTERN RECOGNITION (HAMMER, DOJI, MARUBOZU)
 # ====================================================
 def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
-    """Detects high-conviction candlestick structures (Hammer, Inverted Hammer, Doji, Engulfing)."""
     patterns = []
     if len(df) < 3:
         return patterns
@@ -823,7 +823,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
     upper_wick = h - max(o, c)
     lower_wick = min(o, c) - l
 
-    # 1. Hammer Pattern (Bullish Reversal: Long lower shadow >= 2x body, tiny upper shadow)
+    # Hammer Pattern
     if (lower_wick >= 2 * body) and (upper_wick <= 0.25 * body) and (body / rng >= 0.1):
         patterns.append({
             "name": "🔨 Hammer (Bullish Reversal)",
@@ -832,7 +832,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
             "desc": "Buyers aggressively bought up intraday lows; rejection of lower prices."
         })
 
-    # 2. Inverted Hammer (Bullish Reversal at lows)
+    # Inverted Hammer
     elif (upper_wick >= 2 * body) and (lower_wick <= 0.25 * body) and (body / rng >= 0.1):
         patterns.append({
             "name": "⚡ Inverted Hammer",
@@ -841,7 +841,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
             "desc": "Bullish upward probe encountering temporary resistance but confirming buyer aggression."
         })
 
-    # 3. Shooting Star (Bearish Topping Wick)
+    # Shooting Star
     if (upper_wick >= 2.5 * body) and (c < o) and (lower_wick <= 0.2 * body):
         patterns.append({
             "name": "🌠 Shooting Star (Bearish Reversal)",
@@ -850,7 +850,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
             "desc": "Intraday rally completely rejected by sellers before close."
         })
 
-    # 4. Bullish Engulfing
+    # Bullish Engulfing
     if (pc < po) and (c > o) and (c >= po) and (o <= pc):
         patterns.append({
             "name": "🟢 Bullish Engulfing",
@@ -859,7 +859,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
             "desc": "Current green candle completely engulfs previous bear range."
         })
 
-    # 5. Bearish Engulfing
+    # Bearish Engulfing
     elif (pc > po) and (c < o) and (o >= pc) and (c <= po):
         patterns.append({
             "name": "🔴 Bearish Engulfing",
@@ -868,7 +868,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
             "desc": "Current red candle engulfs previous buyer advance."
         })
 
-    # 6. Doji (Indecision)
+    # Doji Patterns
     if (body / rng) <= 0.08:
         if lower_wick >= 2.5 * upper_wick:
             patterns.append({
@@ -892,7 +892,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
                 "desc": "Equilibrium between buyer and seller order-flow."
             })
 
-    # 7. Marubozu (Strong Momentum)
+    # Marubozu Patterns
     if (body / rng >= 0.88):
         if c > o:
             patterns.append({
@@ -912,7 +912,7 @@ def analyze_candlestick_patterns(df: pd.DataFrame) -> list:
     return patterns
 
 # ====================================================
-# 6. MASTER UNIVERSE ENGINE
+# 6. DYNAMIC LIVE AUTOCOMPLETE RESOLVER (FIND ANY STOCK/SME)
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -989,9 +989,10 @@ def load_all_indian_stocks_universe() -> dict:
     except Exception:
         pass
 
+    # Ingest Live NSE Equities Master
     try:
         url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
-        res = requests.get(url, headers=HEADERS, timeout=2.2)
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=2.0)
         if res.status_code == 200:
             lines = res.text.split("\n")
             for line in lines[1:4000]:
@@ -1004,9 +1005,10 @@ def load_all_indian_stocks_universe() -> dict:
     except Exception:
         pass
 
+    # Ingest Live NSE Emerge SME Directory
     try:
         url_sme = "https://archives.nseindia.com/content/equities/sme_bands_complete.csv"
-        res_s = requests.get(url_sme, headers=HEADERS, timeout=2.0)
+        res_s = requests.get(url_sme, headers={"User-Agent": "Mozilla/5.0"}, timeout=2.0)
         if res_s.status_code == 200:
             lines = res_s.text.split("\n")
             for line in lines[1:]:
@@ -1029,6 +1031,26 @@ def get_suggestion_list() -> list:
         options.append(f"{sym} — {name}")
     options.sort()
     return options
+
+def query_live_exchange_symbol(query_term: str) -> dict:
+    """Discovers any unlisted stock, SME, or fresh IPO via live API resolution."""
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query_term}&quotesCount=5&newsCount=0"
+        r = requests.get(url, headers=headers, timeout=2.5)
+        if r.status_code == 200:
+            data = r.json()
+            quotes = data.get("quotes", [])
+            for q in quotes:
+                exch = q.get("exchange", "")
+                sym = q.get("symbol", "")
+                if exch in ["NSI", "BSE", "NSE"] or sym.endswith(".NS") or sym.endswith(".BO"):
+                    clean_sym = sym.replace(".NS", "").replace(".BO", "")
+                    c_name = q.get("shortname") or q.get("longname") or clean_sym
+                    return {"name": c_name, "symbol": clean_sym, "bse": ""}
+    except Exception:
+        pass
+    return None
 
 def resolve_symbol_from_selection(query_str: str) -> dict:
     if not query_str:
@@ -1058,6 +1080,12 @@ def resolve_symbol_from_selection(query_str: str) -> dict:
         if clean == val.get("name", "").upper() or clean in val.get("name", "").upper():
             return val
     
+    # Query live Yahoo Finance search API for SMEs or unindexed IPOs
+    discovered = query_live_exchange_symbol(clean)
+    if discovered:
+        clean = discovered["symbol"]
+        stocks[clean] = discovered
+
     try:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -1119,7 +1147,7 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
                 continue
             try:
                 url_g = f"https://www.google.com/finance/quote/{exch}"
-                rg = requests.get(url_g, headers=HEADERS, timeout=2.5)
+                rg = requests.get(url_g, headers={"User-Agent": "Mozilla/5.0"}, timeout=2.5)
                 if rg.status_code == 200:
                     soup = BeautifulSoup(rg.text, "html.parser")
                     el = soup.find("div", {"class": "YMlKec fxKbKc"})
@@ -1137,9 +1165,9 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
     if not live_price:
         try:
             url_s = f"https://www.screener.in/company/{symbol.replace('&', '%26')}/consolidated/"
-            rs = requests.get(url_s, headers=HEADERS, timeout=3.0)
+            rs = requests.get(url_s, headers={"User-Agent": "Mozilla/5.0"}, timeout=3.0)
             if rs.status_code != 200:
-                rs = requests.get(f"https://www.screener.in/company/{symbol.replace('&', '%26')}/", headers=HEADERS, timeout=3.0)
+                rs = requests.get(f"https://www.screener.in/company/{symbol.replace('&', '%26')}/", headers={"User-Agent": "Mozilla/5.0"}, timeout=3.0)
             if rs.status_code == 200:
                 soup = BeautifulSoup(rs.text, "html.parser")
                 for item in soup.find_all("li", {"class": "flex flex-space-between"}):
@@ -1211,9 +1239,9 @@ def fetch_bulletproof_market_data(symbol: str, bse_code: str = "") -> tuple:
 def fetch_screener_metrics(symbol: str) -> dict:
     url = f"https://www.screener.in/company/{symbol.replace('&', '%26')}/consolidated/"
     try:
-        res = requests.get(url, headers=HEADERS, timeout=3.5)
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3.5)
         if res.status_code != 200:
-            res = requests.get(f"https://www.screener.in/company/{symbol.replace('&', '%26')}/", headers=HEADERS, timeout=3.5)
+            res = requests.get(f"https://www.screener.in/company/{symbol.replace('&', '%26')}/", headers={"User-Agent": "Mozilla/5.0"}, timeout=3.5)
         soup = BeautifulSoup(res.text, "html.parser")
         ratios = {}
         for item in soup.find_all("li", {"class": "flex flex-space-between"}):
@@ -1234,7 +1262,7 @@ def fetch_live_stock_news_and_sentiment(symbol: str, company_name: str) -> tuple
     for exch in [f"{symbol}:NSE", f"{symbol}:BOM"]:
         try:
             url = f"https://www.google.com/finance/quote/{exch}"
-            res = requests.get(url, headers=HEADERS, timeout=3.0)
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3.0)
             if res.status_code == 200:
                 soup = BeautifulSoup(res.text, "html.parser")
                 for item in soup.find_all("div", {"class": "Yfwt5"}):
@@ -1368,113 +1396,86 @@ def fetch_live_ipos_tri_source() -> pd.DataFrame:
     ])
 
 # ====================================================
-# 7. ENHANCED PREDICTION ENGINE (CANDLESTICKS + VOLUME)
+# 7. INTRADAY PIVOT CALCULATOR
 # ====================================================
-def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fundamentals: dict, sentiment_score: int, live_volume: int, bid_ask_ratio: float) -> dict:
+def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame, live_price: float, bid_ask_ratio: float, sentiment_score: int) -> dict:
     high = df_daily['High']
     low = df_daily['Low']
     close = df_daily['Close']
-    volume = df_daily['Volume']
+
+    prev_h = float(high.iloc[-2]) if len(high) >= 2 else float(high.iloc[-1])
+    prev_l = float(low.iloc[-2]) if len(low) >= 2 else float(low.iloc[-1])
+    prev_c = float(close.iloc[-2]) if len(close) >= 2 else float(close.iloc[-1])
+    rng = prev_h - prev_l if prev_h > prev_l else live_price * 0.015
+
+    h4 = round(prev_c + (rng * 1.1 / 2.0), 2)
+    h3 = round(prev_c + (rng * 1.1 / 4.0), 2)
+    l3 = round(prev_c - (rng * 1.1 / 4.0), 2)
+    l4 = round(prev_c - (rng * 1.1 / 2.0), 2)
 
     tr1 = high - low
     tr2 = (high - close.shift()).abs()
     tr3 = (low - close.shift()).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = float(tr.rolling(14).mean().dropna().iloc[-1]) if len(tr.dropna()) >= 14 else float(current_price * 0.02)
+    atr = float(pd.concat([tr1, tr2, tr3], axis=1).max(axis=1).rolling(14).mean().dropna().iloc[-1]) if len(high) >= 14 else float(live_price * 0.02)
 
-    ema_20 = float(close.ewm(span=20).mean().iloc[-1])
-    ema_50 = float(close.ewm(span=50).mean().iloc[-1]) if len(close) >= 50 else ema_20
-    avg_vol_20 = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else float(live_volume)
-    vol_surge_mult = round(live_volume / (avg_vol_20 + 1), 2)
-
-    delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-    rs = gain / loss.replace(0, 0.001)
-    rsi = float((100 - (100 / (1 + rs))).dropna().iloc[-1]) if len(rs.dropna()) > 0 else 50.0
-
-    # 1. Base Score
-    score = 50
-
-    if current_price > ema_20 and ema_20 > ema_50:
-        score += 20
-    elif current_price < ema_20 and ema_20 < ema_50:
-        score -= 25
-    elif current_price < ema_20:
-        score -= 10
-
-    if bid_ask_ratio > 1.3:
-        score += 15
-    elif bid_ask_ratio < 0.7:
-        score -= 20
-
-    if vol_surge_mult > 1.4:
-        if current_price >= ema_20:
-            score += 10
-        else:
-            score -= 15
-
-    # 2. Candlestick Structural Analysis
-    candle_patterns = analyze_candlestick_patterns(df_daily)
-    for p in candle_patterns:
-        score += p["weight"]
-
-    # 3. News Sentiment Integration
-    score += int(sentiment_score * 0.30)
-
-    if score >= 75:
-        stance = "STRONG BUY"
-        target = round(current_price + (2.5 * atr), 2)
-        stop = round(current_price - (1.4 * atr), 2)
-        signal_type = "BULLISH"
-        pattern_txt = f" [{candle_patterns[0]['name']}]" if candle_patterns else ""
-        thesis = f"Bullish breakout confirmed by volume surge ({vol_surge_mult}x avg) and buyer book dominance ({bid_ask_ratio}:1).{pattern_txt}"
-    elif score >= 55:
-        stance = "ACCUMULATE / BUY"
-        target = round(current_price + (1.8 * atr), 2)
-        stop = round(current_price - (1.2 * atr), 2)
-        signal_type = "BULLISH"
-        pattern_txt = f" Supported by {candle_patterns[0]['name']}." if candle_patterns else ""
-        thesis = f"Support levels holding with stable buying accumulation across recent candles.{pattern_txt}"
-    elif score <= 30:
-        stance = "STRONG SELL"
-        target = round(max(0, current_price - (2.2 * atr)), 2)
-        stop = round(current_price + (1.3 * atr), 2)
-        signal_type = "BEARISH"
-        pattern_txt = f" Bearish pattern triggered: {candle_patterns[0]['name']}." if candle_patterns else ""
-        thesis = f"CRITICAL BREAKDOWN: Heavy liquidation ({bid_ask_ratio}:1 buy/sell ratio) below key EMAs.{pattern_txt}"
+    if not df_5m.empty:
+        typ = (df_5m['High'] + df_5m['Low'] + df_5m['Close']) / 3
+        vol = df_5m['Volume'].replace(0, 1)
+        cum_vol = vol.cumsum()
+        vwap = round(float(((typ * vol).cumsum() / cum_vol).iloc[-1]), 2) if not cum_vol.empty else live_price
     else:
-        stance = "AVOID / SELL"
-        target = round(max(0, current_price - (1.4 * atr)), 2)
-        stop = round(current_price + (1.0 * atr), 2)
-        signal_type = "BEARISH"
-        thesis = "Distribution phase active. Lack of institutional bidding support."
+        vwap = live_price
 
-    confidence = max(55, min(95, abs(score)))
+    if live_price >= h4 and bid_ask_ratio >= 1.1:
+        action = "STRONG BUY (BREAKOUT)"
+        entry = live_price
+        target = round(live_price + max(0.8 * atr, (h4 - live_price) + 1.2 * atr), 2)
+        stop = round(live_price - (0.5 * atr), 2)
+        rule = f"H4 Level breach (₹{h4}) backed by {bid_ask_ratio}:1 buyer volume dominance."
+        forecast_today = "BULLISH EXPANSION: Projected to trade higher towards upper Camarilla range."
+        conf = 90
+    elif live_price <= l4 or (live_price < vwap and bid_ask_ratio < 0.75):
+        action = "STRONG SELL (SHORT)"
+        entry = live_price
+        target = round(max(0, live_price - max(0.8 * atr, (live_price - l4) + 1.2 * atr)), 2)
+        stop = round(live_price + (0.5 * atr), 2)
+        rule = f"Trading below breakdown zone with heavy seller order book volume."
+        forecast_today = "BEARISH SINK: Intraday sellers dominating order flow. High probability of testing lower support."
+        conf = 88
+    elif live_price >= vwap:
+        action = "BUY ON DIPS"
+        entry = round(vwap, 2)
+        candidate_target = max(h4, round(entry + (1.2 * atr), 2))
+        if candidate_target <= entry:
+            candidate_target = round(entry + (1.0 * atr), 2)
+        target = candidate_target
+        stop = round(entry - (0.6 * atr), 2)
+        rule = f"Holding above session VWAP benchmark (₹{vwap})."
+        forecast_today = "RANGE-BOUND BULLISH: Look for dip-buying entries near VWAP support."
+        conf = 78
+    else:
+        action = "SELL ON RISE"
+        entry = round(vwap, 2)
+        candidate_target = min(l4, round(entry - (1.2 * atr), 2))
+        if candidate_target >= entry:
+            candidate_target = round(entry - (1.0 * atr), 2)
+        target = round(max(0, candidate_target), 2)
+        stop = round(entry + (0.6 * atr), 2)
+        rule = f"Rejected below VWAP (₹{vwap}). Supply pressure active."
+        forecast_today = "RANGE-BOUND BEARISH: Sellers capping bounce attempts. Avoid buying rallies."
+        conf = 76
 
     return {
-        "target": target,
-        "stop": stop,
-        "stance": stance,
-        "signal_type": signal_type,
-        "confidence": confidence,
-        "thesis": thesis,
-        "atr": atr,
-        "rsi": round(rsi, 1),
-        "ema_20": round(ema_20, 2),
-        "ema_50": round(ema_50, 2),
-        "vol_surge_mult": vol_surge_mult,
-        "bid_ask_ratio": bid_ask_ratio,
-        "patterns": candle_patterns
+        "h4": h4, "h3": h3, "l3": l3, "l4": l4, "vwap": vwap, "action": action,
+        "entry": entry, "target": target, "stop": stop, "rule": rule, "confidence": conf,
+        "forecast_today": forecast_today
     }
 
-# ====================================================
-# 8. PRE-COMPUTED SUGGESTIONS LIST (GLOBAL SCOPE)
-# ====================================================
+# Pre-compute autocomplete suggestions
 all_suggestions = get_suggestion_list()
 
 # ====================================================
-# 9. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
+# 8. AUTHENTICATION CHECK & LOGIN SCREEN
 # ====================================================
 if st.query_params.get("logout") == "true":
     del st.query_params["logout"]
@@ -1565,7 +1566,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ====================================================
-# 10. USER PROFILE SETTINGS DIALOG
+# 9. USER PROFILE SETTINGS DIALOG
 # ====================================================
 @st.dialog("👤 Account Profile & Settings")
 def open_profile_dropdown():
@@ -1611,7 +1612,7 @@ def open_profile_dropdown():
         st.rerun()
 
 # ====================================================
-# 11. MAIN NAVIGATION HEADER & TOP BAR
+# 10. MAIN NAVIGATION HEADER & TOP BAR
 # ====================================================
 col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
 
