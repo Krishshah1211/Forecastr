@@ -34,7 +34,7 @@ except ImportError:
     HAS_AUTOREFRESH = False
 
 # ====================================================
-# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS UNCONDITIONALLY FIRST)
+# 0. GLOBAL SESSION STATE BOOTSTRAP (RUNS UNCONDITIONALLY)
 # ====================================================
 DEFAULT_STATES = {
     "authenticated": False,
@@ -745,7 +745,7 @@ def render_brand_logo(size=30):
     )
 
 # ====================================================
-# 4. MASTER UNIVERSE & DATA ENGINES (DECLARED BEFORE TABS)
+# 4. MASTER UNIVERSE & DATA ENGINES
 # ====================================================
 @st.cache_data(ttl=21600, show_spinner=False)
 def load_all_indian_stocks_universe() -> dict:
@@ -1301,9 +1301,6 @@ def calculate_swing_quant_math(df_daily: pd.DataFrame, current_price: float, fun
         "bid_ask_ratio": bid_ask_ratio
     }
 
-# ====================================================
-# LIVE INTRADAY PREDICTION ENGINE (LOGIC-GUARDED)
-# ====================================================
 def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame, live_price: float, bid_ask_ratio: float, sentiment_score: int) -> dict:
     high = df_daily['High']
     low = df_daily['Low']
@@ -1332,6 +1329,7 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
     else:
         vwap = live_price
 
+    # Guard: Ensures Target > Entry on BUY, and Target < Entry on SELL
     if live_price >= h4 and bid_ask_ratio >= 1.1:
         action = "STRONG BUY (BREAKOUT)"
         entry = live_price
@@ -1377,7 +1375,199 @@ def calculate_live_intraday_forecast(df_5m: pd.DataFrame, df_daily: pd.DataFrame
         "forecast_today": forecast_today
     }
 
-# Safe lookup of current tab
+# ====================================================
+# 5. GLOBAL SUGGESTIONS INSTANTIATION (ABOVE ALL UI TABS)
+# ====================================================
+all_suggestions = get_suggestion_list()
+
+# ====================================================
+# 6. AUTHENTICATION PORTAL (IF NOT LOGGED IN)
+# ====================================================
+if not st.session_state.authenticated:
+    st.write("")
+    st.markdown(
+        f"<div style='text-align:center; margin-bottom:16px;'>"
+        f"{render_brand_logo(size=36)}"
+        f"<p style='color:#64748b; font-size:12px; margin-top:4px;'>Quantitative Equities & Market Terminal</p>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
+    _, center_col, _ = st.columns([1, 1.8, 1])
+    with center_col:
+        tab_mpin, tab_pwd, tab_register = st.tabs(["⚡ Fast MPIN", "🔐 Password", "✨ New Account"])
+        
+        with tab_mpin:
+            with st.form("clean_mpin_form"):
+                m_user = st.text_input("Username", placeholder="e.g. admin", key="mpin_u")
+                m_pin = st.text_input("4-Digit MPIN", type="password", max_chars=4, placeholder="••••", key="mpin_p")
+                st.write("")
+                submit_mpin = st.form_submit_button("Instant Unlock →", type="primary", use_container_width=True)
+                if submit_mpin:
+                    ok, u_data, msg = verify_user_mpin(m_user, m_pin)
+                    if ok:
+                        token = create_user_session(m_user)
+                        st.query_params["auth_token"] = token
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = m_user.strip().lower()
+                        st.session_state.user_profile = u_data
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+
+        with tab_pwd:
+            with st.form("clean_login_form"):
+                l_user = st.text_input("Username", placeholder="Enter username", key="pwd_u")
+                l_pass = st.text_input("Password", type="password", placeholder="Enter password", key="pwd_p")
+                st.write("")
+                submit_login = st.form_submit_button("Sign In with Password →", type="primary", use_container_width=True)
+                if submit_login:
+                    ok, u_data, msg = verify_user_password(l_user, l_pass)
+                    if ok:
+                        token = create_user_session(l_user)
+                        st.query_params["auth_token"] = token
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = l_user.strip().lower()
+                        st.session_state.user_profile = u_data
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+
+        with tab_register:
+            with st.form("clean_register_form"):
+                r_user = st.text_input("Username", placeholder="Choose username")
+                r_pass = st.text_input("Password", type="password", placeholder="Choose master password")
+                r_conf = st.text_input("Confirm Password", type="password", placeholder="Confirm master password")
+                r_mpin = st.text_input("Set 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 5678")
+                st.write("")
+                submit_reg = st.form_submit_button("Create Account & Setup MPIN", type="primary", use_container_width=True)
+                if submit_reg:
+                    if r_pass != r_conf:
+                        st.error("❌ Passwords do not match.")
+                    else:
+                        ok, msg = register_user(r_user, r_pass, r_mpin)
+                        if ok:
+                            st.success(f"✅ {msg}")
+                        else:
+                            st.error(f"❌ {msg}")
+
+    render_caution_bar()
+    st.stop()
+
+# ====================================================
+# 7. USER PROFILE SETTINGS DIALOG
+# ====================================================
+@st.dialog("👤 Account Profile & Settings")
+def open_profile_dropdown():
+    user = st.session_state.current_user
+    
+    st.markdown(
+        f"<div style='background:#121620; padding:12px; border-radius:10px; border:1px solid rgba(255,255,255,0.08); margin-bottom:12px;'>"
+        f"<span style='color:#94a3b8; font-size:11px; text-transform:uppercase;'>Active Account</span>"
+        f"<h3 style='margin:4px 0 0 0; color:#00D09C;'>{user.upper()}</h3>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
+    with st.expander("Update 4-Digit Fast MPIN", expanded=True):
+        new_pin = st.text_input("New 4-Digit MPIN", type="password", max_chars=4, placeholder="e.g. 1234", key="diag_mpin_input")
+        if st.button("Save New MPIN", key="btn_save_mpin_diag", use_container_width=True):
+            ok, msg = update_user_mpin(user, new_pin)
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+    with st.expander("Change Master Password", expanded=False):
+        old_p = st.text_input("Current Password", type="password", key="diag_old_pass")
+        new_p = st.text_input("New Password", type="password", key="diag_new_pass")
+        if st.button("Update Password", key="btn_save_pwd_diag", use_container_width=True):
+            ok, msg = update_user_password(user, old_p, new_pass=new_p)
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+    st.markdown("---")
+    if st.button("Logout from Terminal", type="primary", use_container_width=True):
+        if user:
+            clear_user_session(user)
+        if "auth_token" in st.query_params:
+            del st.query_params["auth_token"]
+        st.query_params["logout"] = "true"
+        st.session_state.authenticated = False
+        st.session_state.current_user = ""
+        st.session_state.user_profile = {}
+        st.rerun()
+
+# ====================================================
+# 8. MAIN NAVIGATION HEADER & TOP BAR
+# ====================================================
+col_logo, col_nav, col_user = st.columns([3.5, 4.5, 2])
+
+with col_logo:
+    st.markdown(render_brand_logo(size=30), unsafe_allow_html=True)
+
+with col_nav:
+    n1, n2, n3 = st.columns(3)
+    with n1:
+        if st.button("🔍 Stock", use_container_width=True):
+            st.session_state.current_tab = "universal"
+            st.rerun()
+    with n2:
+        if st.button("⚡ Intraday", use_container_width=True):
+            st.session_state.current_tab = "intraday"
+            st.rerun()
+    with n3:
+        if st.button("🚀 IPO/GMP", use_container_width=True):
+            st.session_state.current_tab = "ipo"
+            st.rerun()
+
+with col_user:
+    if st.button(f"👤 {st.session_state.current_user.upper()}", key="btn_user_avatar_menu", use_container_width=True):
+        open_profile_dropdown()
+
+mkt = get_market_calendar_status()
+
+stream_bar_left, stream_bar_right = st.columns([5.5, 4.5])
+with stream_bar_left:
+    st.markdown(
+        f"<div class='market-status-bar'>"
+        f"<span>{mkt['badge']}</span>"
+        f"<span style='color: #475569;'>|</span>"
+        f"<span style='color: #94a3b8;'>{mkt['time_str']}</span>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
+refresh_options = {
+    10: "10 sec", 30: "30 sec", 60: "1 min", 120: "2 min",
+    300: "5 min", 600: "10 min", 900: "15 min"
+}
+
+with stream_bar_right:
+    c_tog, c_sec = st.columns([1.8, 1.2])
+    with c_tog:
+        st.session_state.auto_refresh_enabled = st.toggle("Auto-Refresh", value=st.session_state.auto_refresh_enabled)
+    with c_sec:
+        if st.session_state.auto_refresh_enabled:
+            selected_sec = st.selectbox(
+                "Cycle Interval",
+                options=list(refresh_options.keys()),
+                format_func=lambda x: refresh_options[x],
+                index=list(refresh_options.keys()).index(st.session_state.auto_refresh_sec) if st.session_state.auto_refresh_sec in refresh_options else 1,
+                label_visibility="collapsed"
+            )
+            st.session_state.auto_refresh_sec = selected_sec
+
+if st.session_state.auto_refresh_enabled:
+    if HAS_AUTOREFRESH:
+        st_autorefresh(interval=st.session_state.auto_refresh_sec * 1000, key="market_live_stream_clock")
+    else:
+        st.markdown(f'<meta http-equiv="refresh" content="{st.session_state.auto_refresh_sec}">', unsafe_allow_html=True)
+
+st.markdown("---")
+
 active_tab = st.session_state.get("current_tab", "universal")
 
 # ====================================================
